@@ -27,6 +27,10 @@ readonly SCRIPT_URL="https://raw.githubusercontent.com/nledford/Ladderback/main/
 readonly BY_HAND_URL="https://github.com/nledford/Ladderback/blob/main/docs/guide/install.md#by-hand"
 readonly FULL_DISK_ACCESS_URL="https://github.com/nledford/Ladderback/blob/main/docs/guide/install.md#macos-full-disk-access"
 readonly RUSTUP_URL="https://sh.rustup.rs"
+readonly TRUNK_RELEASES_URL="https://github.com/trunk-rs/trunk/releases"
+# The trunk installed where it is missing: from its release (trunk_release),
+# or built from source where trunk publishes none.
+readonly TRUNK_VERSION=0.22.1
 
 usage() {
     cat <<EOF
@@ -194,8 +198,8 @@ parse_args() {
 
 # Checks the tools the build needs. What needs administrator rights, or can't
 # be installed without rustup, is named with how to install it, and the script
-# stops before changing anything. What it can install goes into `install_rust`
-# and `install_tools`.
+# stops before changing anything. What it can install goes into `install_rust`,
+# `install_tools` (built with cargo), and `fetch_trunk` or `build_trunk`.
 check_tools() {
     local pm missing=() version
     pm=$(package_manager)
@@ -228,9 +232,6 @@ check_tools() {
     else
         rustup=1
         install_rust=1
-        if ! has curl; then
-            missing+=("curl, to download rustup's installer: install it with your system's package manager")
-        fi
     fi
 
     version=''
@@ -245,11 +246,18 @@ check_tools() {
         fi
     fi
     if ! has trunk; then
-        if [ "$rustup" = 1 ]; then
-            install_tools+=(trunk)
+        trunk_release
+        if [ -n "$trunk_target" ]; then
+            fetch_trunk=1
+        elif [ "$rustup" = 1 ]; then
+            build_trunk=1
+            trunk_jobs=$(trunk_build_jobs)
         else
-            missing+=("trunk: take a prebuilt release from https://github.com/trunk-rs/trunk/releases, or install Rust with rustup (https://rustup.rs) and run this again")
+            missing+=("trunk: it publishes no release for $os on $(uname -m), and building it needs rustup: install Rust with rustup (https://rustup.rs) and run this again")
         fi
+    fi
+    if ! has curl && { [ "$install_rust" = 1 ] || [ "$fetch_trunk" = 1 ]; }; then
+        missing+=("curl, to download rustup's installer and trunk's release: install it with your system's package manager")
     fi
 
     if [ "${#missing[@]}" -gt 0 ]; then
@@ -261,6 +269,70 @@ check_tools() {
         warn "Install them, then run this again. Nothing was changed."
         exit 1
     fi
+}
+
+# trunk's release archive for this system, at TRUNK_VERSION, and its SHA-256:
+# sets trunk_target and trunk_sha, or leaves them empty where trunk publishes
+# none. On Linux it is the static (musl) build, as trunk's gnu builds need
+# glibc 2.39 and OpenSSL 3, which Debian 12 and Ubuntu 22.04 lack. To move to
+# another trunk, change TRUNK_VERSION and the four hashes, taking each from
+# the release's `<archive>.sha256` asset after checking it against the
+# downloaded archive.
+trunk_release() {
+    trunk_target=''
+    trunk_sha=''
+    case "$os-$(uname -m)" in
+        Linux-x86_64) trunk_target=x86_64-unknown-linux-musl trunk_sha=a1fe5cd6b053f5a76f66b598d296022a7f06f56def6013cc16cd6897d53f5363 ;;
+        Linux-aarch64 | Linux-arm64) trunk_target=aarch64-unknown-linux-musl trunk_sha=8c84a939aaf48bbdac2d78195c932adb319e610fb2cbf791bae07b2660cf3e46 ;;
+        Darwin-x86_64) trunk_target=x86_64-apple-darwin trunk_sha=55b5cf2d6a23201f555cc561cc07157989581cc720a260505f8e98aae67abcf7 ;;
+        Darwin-arm64) trunk_target=aarch64-apple-darwin trunk_sha=18e381936c848700fefb9ee3f64f362419fab700200eefee323ebc0d00a8e9db ;;
+    esac
+}
+
+# How many jobs build trunk from source where it publishes no release: one
+# per 2 GB of the memory free now, at least one, and no more than the
+# processors online. Where getconf can't say, one. With cargo's default of a
+# job per processor, the build took all of a 4 GB Raspberry Pi's memory and
+# swap until it reset (#538).
+trunk_build_jobs() {
+    local pages page_size processors jobs=0
+    pages=$(getconf _AVPHYS_PAGES 2>/dev/null || true)
+    page_size=$(getconf PAGESIZE 2>/dev/null || true)
+    if [[ $pages =~ ^[0-9]{1,12}$ ]] && [[ $page_size =~ ^[0-9]{1,7}$ ]]; then
+        jobs=$((10#$pages * 10#$page_size / 2147483648))
+    fi
+    processors=$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)
+    if [[ $processors =~ ^[0-9]{1,6}$ ]] && ((10#$processors > 0 && jobs > 10#$processors)); then
+        jobs=$((10#$processors))
+    fi
+    if ((jobs < 1)); then
+        jobs=1
+    fi
+    say "$jobs"
+}
+
+# Downloads trunk's release archive for this system and checks it against the
+# SHA-256 pinned in trunk_release, before anything is installed: a mismatch
+# stops the script with nothing changed. The archive holds `trunk` alone,
+# which is unpacked into the scratch folder.
+download_trunk() {
+    local archive="trunk-$trunk_target.tar.gz" actual
+    say "Downloading trunk $TRUNK_VERSION for $trunk_target"
+    curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 \
+        -o "$scratch/$archive" "$TRUNK_RELEASES_URL/download/v$TRUNK_VERSION/$archive" ||
+        die "trunk's release couldn't be downloaded. Nothing was installed; run this again."
+    if has sha256sum; then
+        actual=$(sha256sum "$scratch/$archive") || die "sha256sum couldn't read trunk's release. Nothing was installed."
+    elif has shasum; then
+        actual=$(shasum -a 256 "$scratch/$archive") || die "shasum couldn't read trunk's release. Nothing was installed."
+    else
+        die "neither sha256sum nor shasum is installed, to check trunk's release. Nothing was installed."
+    fi
+    actual=${actual%% *}
+    if [ "$actual" != "$trunk_sha" ]; then
+        die "trunk's release $archive doesn't match the SHA-256 this script pins: it has $actual, not $trunk_sha. Nothing was installed. Run this again; if it says the same, report it: https://github.com/nledford/Ladderback/issues"
+    fi
+    tar -xzf "$scratch/$archive" -C "$scratch" trunk
 }
 
 # Refuses a source folder this script must not touch: one that holds
@@ -313,8 +385,11 @@ is_ladderback_url() {
 }
 
 # Installs rustup, just and trunk where they are missing, after asking once.
+# trunk's release is downloaded and checked first, so an archive that fails
+# its check leaves nothing installed.
 install_missing_tools() {
-    if [ "$install_rust" = 0 ] && [ "${#install_tools[@]}" -eq 0 ]; then
+    if [ "$install_rust" = 0 ] && [ "${#install_tools[@]}" -eq 0 ] &&
+        [ "$fetch_trunk" = 0 ] && [ "$build_trunk" = 0 ]; then
         return 0
     fi
     warn "Ladderback's build needs tools that aren't installed. This script will install:"
@@ -323,6 +398,11 @@ install_missing_tools() {
     fi
     if [ "${#install_tools[@]}" -gt 0 ]; then
         warn "  - ${install_tools[*]}, built from source with: cargo +stable install --locked ${install_tools[*]}"
+    fi
+    if [ "$fetch_trunk" = 1 ]; then
+        warn "  - trunk $TRUNK_VERSION, from trunk's release for $trunk_target, checked against the SHA-256 this script pins"
+    elif [ "$build_trunk" = 1 ]; then
+        warn "  - trunk $TRUNK_VERSION, built from source, as it publishes no release for this system, with: cargo +stable install --locked -j $trunk_jobs trunk@$TRUNK_VERSION"
     fi
     if [ "$yes" = 0 ]; then
         if ! have_terminal; then
@@ -343,6 +423,9 @@ install_missing_tools() {
     fi
 
     local cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+    if [ "$fetch_trunk" = 1 ]; then
+        download_trunk
+    fi
     if [ "$install_rust" = 1 ]; then
         say "Installing Rust with rustup's installer"
         curl --proto '=https' --tlsv1.2 -sSf "$RUSTUP_URL" -o "$scratch/rustup-init.sh"
@@ -358,6 +441,14 @@ install_missing_tools() {
     if [ "${#install_tools[@]}" -gt 0 ]; then
         say "Installing ${install_tools[*]}"
         cargo +stable install --locked "${install_tools[@]}"
+    fi
+    if [ "$fetch_trunk" = 1 ]; then
+        mkdir -p "$cargo_bin"
+        install -m 0755 "$scratch/trunk" "$cargo_bin/trunk"
+        say "Installed trunk $TRUNK_VERSION into $cargo_bin"
+    elif [ "$build_trunk" = 1 ]; then
+        say "trunk publishes no release for this system: building it from source with $trunk_jobs build job(s), one per 2 GB of free memory"
+        cargo +stable install --locked -j "$trunk_jobs" "trunk@$TRUNK_VERSION"
     fi
     local version
     version=$(tool_version just --version)
@@ -607,6 +698,11 @@ main() {
     rustup=1
     install_rust=0
     install_tools=()
+    fetch_trunk=0
+    build_trunk=0
+    trunk_jobs=1
+    trunk_target=''
+    trunk_sha=''
     update=0
     release=''
     tty=${LADDERBACK_INSTALL_TTY:-/dev/tty}
