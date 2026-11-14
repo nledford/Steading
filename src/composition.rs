@@ -4640,6 +4640,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_running_row_that_cannot_be_read_is_logged_as_ended_by_its_code_alone() {
+        use sqlx::{ConnectOptions, Connection};
+        super::captured_log::capture();
+        let scratch = tempfile::tempdir().expect("a scratch dir");
+        let (config, data) = own_folders(scratch.path());
+        let database = data.join("ladderback.db");
+        let earlier = SqliteStore::open(&database).await.expect("the log opens");
+        earlier
+            .save(
+                &running_backup(OperationId::from_uuid(Uuid::from_u128(0x275))),
+                None,
+            )
+            .await
+            .expect("the running backup is saved");
+        earlier.close().await;
+        // An ID the row can't hold, which the store's own account of the row
+        // repeats: it is the row's, so nobody has checked it (I4).
+        let canary = "canary-7f3b-not-an-id";
+        let mut raw = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&database)
+            .connect()
+            .await
+            .expect("a raw connection to the log");
+        sqlx::query("UPDATE operations SET id = ?")
+            .bind(canary)
+            .execute(&mut raw)
+            .await
+            .expect("the row is changed");
+        raw.close().await.expect("the connection closes");
+
+        let daemon = daemon_at(Some(config), Some(data), None)
+            .await
+            .map_err(|refused| refused.message)
+            .expect("an unreadable running row doesn't refuse the start");
+        drop(daemon);
+
+        let said: Vec<_> = super::captured_log::lines()
+            .into_iter()
+            .filter(|(_, line)| line.contains("in the operation log can't be read"))
+            .collect();
+        assert!(
+            said.iter().any(|(level, line)| *level == log::Level::Warn
+                && line.contains("a running operation")
+                && line.contains("has ended as failed")
+                && line.contains("store-corrupt")),
+            "the row is logged as ended, with the store's code: {said:?}"
+        );
+        assert!(
+            said.iter().all(|(_, line)| !line.contains("queued")),
+            "a running row isn't logged as a queued one: {said:?}"
+        );
+        assert!(
+            said.iter().all(|(_, line)| !line.contains(canary)),
+            "the row's own text never reaches the log: {said:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn a_close_that_ends_within_its_bound_is_waited_for_and_says_nothing() {
         super::captured_log::capture();
         let database = std::path::Path::new("/srv/demo/closes-in-time/ladderback.db");
