@@ -27,8 +27,8 @@ Hub → agent:
 - `Welcome { protocol, hub_protocols: [min, max] }`: `protocol` is the highest both sides speak, or absent when they share none; `hub_protocols` lets the agent say which side is out of date. It answers `Hello`, the first message after the signature check (§7.1, step 4).
 - `Ack { epoch, seq }`
 - `RepoGrants { grants: [{ repo_id, owner, epoch, expires_at, keep_delete, prune_margin }] }`: the owner lease and the deadline inputs for each repo (§7.3). Sent on connect and renewed with each heartbeat reply. The agent caches them.
-- `RunPlan { plan_id }`, `CancelOp { op_id }` (milestone 4b)
-- `RestoreRequest { request_id, repo_id, snapshot_id, paths, requested_by }` (milestone 4b). Always restores into a new folder. Refused unless the agent sets `allow-hub-restore = true` (§10.4).
+- `RunPlan { plan_id }`, `CancelOp { op_id }` (milestone 5)
+- `RestoreRequest { request_id, repo_id, snapshot_id, paths, requested_by }` (milestone 5). Always restores into a new folder. Refused unless the agent sets `allow-hub-restore = true` (§10.4).
 - `FetchLog { op_id }` → agent replies `LogChunk`
 - `UpdatePlan { plan }`: **reserved for post-v1.** Opt-in per agent ("allow hub to edit my plans"). The message type is reserved in protocol v1 so that adding it later isn't a breaking change
 
