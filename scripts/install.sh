@@ -24,7 +24,8 @@ set -euo pipefail
 
 readonly LADDERBACK_URL="https://github.com/nledford/Ladderback.git"
 readonly SCRIPT_URL="https://raw.githubusercontent.com/nledford/Ladderback/main/scripts/install.sh"
-readonly README_URL="https://github.com/nledford/Ladderback#installation"
+readonly BY_HAND_URL="https://github.com/nledford/Ladderback/blob/main/docs/guide/install.md#by-hand"
+readonly FULL_DISK_ACCESS_URL="https://github.com/nledford/Ladderback/blob/main/docs/guide/install.md#macos-full-disk-access"
 readonly RUSTUP_URL="https://sh.rustup.rs"
 
 usage() {
@@ -366,7 +367,7 @@ install_missing_tools() {
 }
 
 # Clones Ladderback, or fetches its new releases, and checks out the newest
-# release, leaving out release candidates (vX.Y.Z-rc.N) as the README does.
+# release, leaving out release candidates (vX.Y.Z-rc.N) as the install guide does.
 checkout_newest_release() {
     if [ "$update" = 1 ]; then
         say "Fetching Ladderback's releases into $dir"
@@ -448,7 +449,7 @@ use_pinned_rust() {
         done <"$dir/rust-toolchain.toml"
     fi
     if [ -z "$channel" ]; then
-        die "$release's rust-toolchain.toml names no Rust version to build it with. Build it by hand: $README_URL"
+        die "$release's rust-toolchain.toml names no Rust version to build it with. Build it by hand: $BY_HAND_URL"
     fi
 
     local name value
@@ -499,7 +500,7 @@ has_rust() {
 # On 64-bit ARM Linux with a glibc older than 2.38, the wasm-bindgen trunk
 # downloads doesn't run; the version the checkout pins is built instead, in
 # the checkout so that it is built with the Rust the checkout pins, and trunk
-# finds it on the PATH (README, "Installation").
+# finds it on the PATH (docs/guide/install.md, "By hand").
 build_wasm_bindgen_if_needed() {
     local machine glibc
     machine=$(uname -m)
@@ -586,7 +587,7 @@ report() {
     if [ "$os" = Darwin ]; then
         say ""
         say "On macOS, grant $binary Full Disk Access in System Settings → Privacy & Security,"
-        say "and again after each update: $README_URL"
+        say "and again after each update: $FULL_DISK_ACCESS_URL"
     fi
     say ""
     say "To update, run the same command again."
