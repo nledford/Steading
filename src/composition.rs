@@ -527,7 +527,7 @@ async fn state_over(
     // that cannot be changed is a refusal: serving over it would keep that
     // repository held for good. Queued operations stay queued (decision 73).
     let recovered = RecoverOperations::new(Arc::clone(&store))
-        .recover()
+        .recover(SystemClock.now())
         .await
         .map_err(|error| recovery_refused(&log.database, &error))?;
     let ended = recovered.ended;

@@ -7,7 +7,11 @@ Feature: Crash recovery
   A queued one never started, so it is the persistent queue's: a backup of a
   plan the configuration still has, on the repository it was queued for,
   runs again under its own ID, oldest first. Anything else queued ends as
-  failed because the daemon stopped, and the agent says why.
+  failed because the daemon stopped, and the agent says why. Each operation
+  a start ends as failed is announced as any failed operation is, to the
+  notification rules for its failure, once: only after the log has its end,
+  so a start that couldn't write the log announces nothing, and the next
+  start finds nothing left to announce.
 
   Scenario: A backup the log shows as running is shown as failed
     Given the log shows a backup of the plan "home" as running
@@ -140,3 +144,51 @@ Feature: Crash recovery
     When the daemon starts again on a log that cannot be written
     Then the daemon's start reports that the log could not be written
     And the log still shows the backup of the plan "home" as running
+
+  Scenario: A backup the daemon stopped during is announced as failed
+    Given a webhook channel "ops"
+    And a rule "failures" that sends "backup.failed" to "ops"
+    And the log shows a backup of the plan "home" as running
+    When the daemon starts again
+    Then "ops" is sent "backup.failed" for the plan "home" with the code "daemon-stopped"
+
+  Scenario: A maintenance operation the daemon stopped during is announced as failed
+    Given a webhook channel "ops"
+    And a rule "failures" that sends "check.failed" to "ops"
+    And the log shows a check of the repository "nas" as running
+    When the daemon starts again
+    Then "ops" is sent "check.failed" for the repository "nas" with the code "daemon-stopped"
+
+  Scenario: A queued backup that can't run again is announced as failed
+    Given a webhook channel "ops"
+    And a rule "failures" that sends "backup.failed" to "ops"
+    And the log shows a backup of the plan "home" as queued
+    And the configuration no longer has the plan "home"
+    When the daemon starts again
+    Then "ops" is sent "backup.failed" for the plan "home" with the code "daemon-stopped"
+
+  Scenario: An operation a start ended is announced once, however often the daemon starts again
+    Given a webhook channel "ops"
+    And a rule "failures" that sends "backup.failed" to "ops"
+    And the log shows a backup of the plan "home" as running
+    When the daemon starts again
+    And the daemon starts again
+    Then "ops" is sent "backup.failed" for the plan "home" with the code "daemon-stopped"
+
+  Scenario: Only what a start ends is announced
+    Given a webhook channel "ops"
+    And a rule "failures" that sends "backup.failed, check.failed" to "ops"
+    And the log shows a backup of the plan "home" that ended as failed because the repository was unreachable
+    And the log shows a backup of the plan "docs" as queued
+    And the log shows a backup of the plan "photos" as running
+    When the daemon starts again
+    Then "ops" is sent "backup.failed" for the plan "photos" with the code "daemon-stopped"
+
+  Scenario: A start that couldn't write the log announces nothing, and the next start announces the end
+    Given a webhook channel "ops"
+    And a rule "failures" that sends "backup.failed" to "ops"
+    And the log shows a backup of the plan "home" as running
+    When the daemon starts again on a log that cannot be written
+    Then no channel is sent anything
+    When the daemon starts again
+    Then "ops" is sent "backup.failed" for the plan "home" with the code "daemon-stopped"

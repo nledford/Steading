@@ -60,6 +60,13 @@ pub struct NotificationsWorld {
 
 impl NotificationsWorld {
     async fn notify(&self) -> Notify {
+        self.notify_over(self.operations.clone()).await
+    }
+
+    /// The scenario's notification rules, reading the operations they tell
+    /// of from `operations`: another feature's log, for news its own steps
+    /// announce (`steps/recovery.rs`).
+    pub(crate) async fn notify_over(&self, operations: Arc<dyn OperationStore>) -> Notify {
         let notifications = Notifications::new(self.channels.clone(), self.rules.clone())
             .expect("the scenario's rules send to its channels");
         let config = AgentConfig::new(
@@ -82,7 +89,7 @@ impl NotificationsWorld {
         };
         Notify::new(
             store,
-            self.operations.clone(),
+            operations,
             self.secrets.clone(),
             self.notifier.clone(),
         )
