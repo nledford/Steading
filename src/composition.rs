@@ -5267,8 +5267,9 @@ mod tests {
     }
 
     /// A queued backup whose job can't be built at the restart ends as
-    /// failed, and the log says why (decision 73): left queued, it would
-    /// show as queued with nothing to run it until the next start. Here the
+    /// failed, the log says why (decision 73), and the end is announced as
+    /// every end a start makes is (#547): left queued, it would show as
+    /// queued with nothing to run it until the next start. Here the
     /// configuration becomes unreadable between the background task's read
     /// and the runner's own.
     #[tokio::test]
@@ -5276,6 +5277,7 @@ mod tests {
         super::captured_log::capture();
         let id = OperationId::from_uuid(Uuid::from_u128(0x2741));
         let (runner, queued, _scratch) = a_queued_backup_over_a_spoiled_configuration(id).await;
+        let mut page = runner.events.subscribe().await;
 
         PlanRuns::resume(&runner, queued).await;
 
@@ -5294,17 +5296,29 @@ mod tests {
                 && line.contains("(config-invalid)")),
             "the log says why the backup ended: {said:?}"
         );
+        let told = futures::FutureExt::now_or_never(page.next()).flatten();
+        assert_matches!(
+            &told,
+            Some(UiEvent::OperationFailed { operation, code: ErrorCode::DaemonStopped, .. })
+                if *operation == hyphenated,
+            "the end is announced"
+        );
+        assert!(
+            futures::FutureExt::now_or_never(page.next()).is_none(),
+            "the end is announced once"
+        );
     }
 
     /// The same when the background task's own read of the configuration
     /// fails: no job can be built, so every queued backup ends as failed,
-    /// and the log says why.
+    /// the log says why, and each end is announced (#547).
     #[tokio::test]
     async fn the_queue_ends_as_daemon_stopped_when_the_background_task_cannot_read_the_configuration()
      {
         super::captured_log::capture();
         let id = OperationId::from_uuid(Uuid::from_u128(0x2742));
         let (runner, queued, _scratch) = a_queued_backup_over_a_spoiled_configuration(id).await;
+        let mut page = runner.events.subscribe().await;
 
         super::resume_queued(
             vec![OperationRecord::of(&queued, None)],
@@ -5333,6 +5347,13 @@ mod tests {
                 && line.contains(&hyphenated)
                 && line.contains("ConfigUnreadable")),
             "the log names the backup that ended, and why: {said:?}"
+        );
+        let told = futures::FutureExt::now_or_never(page.next()).flatten();
+        assert_matches!(
+            &told,
+            Some(UiEvent::OperationFailed { operation, code: ErrorCode::DaemonStopped, .. })
+                if *operation == hyphenated,
+            "the end is announced"
         );
     }
 
