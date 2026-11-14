@@ -17,6 +17,25 @@ fn guide(page: &str) -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{path} is readable: {error}"))
 }
 
+/// The text of every page of the user guide, in file-name order.
+fn all_guide_pages() -> Vec<String> {
+    let folder = format!("{}/../../../docs/guide", env!("CARGO_MANIFEST_DIR"));
+    let mut paths: Vec<_> = std::fs::read_dir(&folder)
+        .unwrap_or_else(|error| panic!("{folder} is readable: {error}"))
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
+        .collect();
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            std::fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("{} is readable: {error}", path.display()))
+        })
+        .collect()
+}
+
 /// The text of each ```` ```toml ```` block of `markdown`, in order.
 fn toml_blocks(markdown: &str) -> Vec<String> {
     let mut blocks = Vec::new();
@@ -55,7 +74,10 @@ fn blocks_with(needle: &str) -> Vec<String> {
 
 #[test]
 fn every_toml_example_in_the_guide_is_a_configuration_the_daemon_reads() {
-    let blocks = toml_blocks(&guide("first-plan"));
+    let blocks: Vec<String> = all_guide_pages()
+        .iter()
+        .flat_map(|page| toml_blocks(page))
+        .collect();
     assert!(!blocks.is_empty(), "the guide shows no config.toml");
     for block in blocks {
         if let Err(error) = parsed(&as_file(&block)) {
