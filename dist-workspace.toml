@@ -1,8 +1,8 @@
 # cargo-dist's configuration (technical design §12.1, §16 decision 54). Until
-# M5's release packaging it only builds: `.github/workflows/release-builds.yml`
+# M6's release packaging it only builds: `.github/workflows/release-builds.yml`
 # runs `dist build` for each target and smoke-tests the archive, and nothing is
 # published. There is no `ci` key, so dist neither writes nor checks a workflow
-# of its own. M5 adds the hosting and the installers.
+# of its own. M6 adds the hosting and the installers.
 
 [workspace]
 members = ["cargo:."]

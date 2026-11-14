@@ -104,7 +104,7 @@ Everything an agent has, plus:
 - **Maintenance runner** for **hub-managed repos** (§7.3): forget, prune and check, serialized per repo by `OperationStore::try_start` (I7).
 - **Downloads.** For hub-managed repos, the hub opens the repository with its own secret and streams `dump` output to the browser. No file contents cross the sync protocol.
 - **Notifications** (§11).
-- **Remote control** (milestone 4b): "run now", cancel, and restore into a new folder on agents that allow it (§10.4). Plans are **view-only from the hub** in v1. Editing them from the hub is a post-v1 feature, opt-in per agent (§16, decision 2).
+- **Remote control** (milestone 5): "run now", cancel, and restore into a new folder on agents that allow it (§10.4). Plans are **view-only from the hub** in v1. Editing them from the hub is a post-v1 feature, opt-in per agent (§16, decision 2).
 
 ### 4.4 Web UI (Leptos CSR)
 
@@ -331,6 +331,6 @@ A parity contract suite runs every tool both implementations offer against both,
 
 There is deliberately no tool that restores, downloads, applies forget or prune, adopts, approves a proposal, edits config or pairs: each needs a human confirmation or could change what commands run (§10.5). They can be added later only with a confirmation that MCP can carry honestly. A proposal is not an edit: the web UI's "Pending changes" page is the confirmation, and with sign-in on, approving there needs a browser session with step-up, never a token; with sign-in off, approval is a convenience, not a safety boundary (decision 89). The proposal tools are offered in connect mode against an agent only, and left out of `tools/list` elsewhere: headless and scratch modes have no web UI to approve in, and plans are view-only from the hub (decision 2).
 
-**Hub.** M3 drives one agent. Connect mode against a hub, with an `agent` argument on the tools that need one (plan IDs are unique per agent only), arrives with remote control in M4b.
+**Hub.** M3 drives one agent. Connect mode against a hub, with an `agent` argument on the tools that need one (plan IDs are unique per agent only), arrives with remote control in M5.
 
 **Testing.** `features/automation/mcp.feature` runs as `@e2e` scenarios. The runner speaks JSON-RPC to `ladderback mcp --scratch`, and to `ladderback mcp --connect` against `ladderback serve --listen 127.0.0.1:0`, reading the chosen port from the `listening on` line on its stderr. Each tool's input and output schemas are checked against example calls. The I4 canary test (§10.2) scans every tool result, including `list_repositories`, `export_profile` and `preview_import` with inline secrets.

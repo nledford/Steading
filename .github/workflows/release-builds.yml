@@ -1,6 +1,6 @@
 # Builds the release archives and smoke-tests them (technical design §12.1,
 # §16 decision 54). Nothing is published: each archive is a run artifact for a
-# few days, and M5's release packaging adds the hosting. `just release-build`
+# few days, and M6's release packaging adds the hosting. `just release-build`
 # runs cargo-dist's `dist build` (dist-workspace.toml) for one target, and
 # `just smoke-release` checks the binary in it (scripts/smoke-release.ts): on
 # Linux in clean containers, Debian 12 and Ubuntu 22.04 among them, on macOS on
