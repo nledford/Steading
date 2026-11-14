@@ -1520,7 +1520,8 @@ impl PlanRuns for PlanRunner {
             // queued operation: its plan or repository is gone or changed, its
             // plan moved and the secret is refused, or the configuration can't be read. Left
             // queued, it would show as queued with nothing to run it until
-            // the next start (decision 73).
+            // the next start (decision 73). An end the log took is announced,
+            // as every end a start makes is (decision NN).
             Err(why) => {
                 let hyphenated = id.as_uuid().hyphenated();
                 log::warn!(
@@ -1528,13 +1529,20 @@ impl PlanRuns for PlanRunner {
                 );
                 if operation
                     .fail(FailureReason::DaemonStopped, SystemClock.now())
-                    .is_ok()
-                    && let Err(refused) = self.store.save(&operation, None).await
+                    .is_err()
                 {
-                    log::warn!(
+                    return;
+                }
+                match self.store.save(&operation, None).await {
+                    Ok(()) => {
+                        if let Some(news) = app::announce::end_of(&operation) {
+                            self.events.publish(news).await;
+                        }
+                    }
+                    Err(refused) => log::warn!(
                         "operation {hyphenated}: a write to the operation log failed ({}); it stays queued",
                         refused.code()
-                    );
+                    ),
                 }
             }
         }
