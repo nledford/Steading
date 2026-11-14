@@ -83,6 +83,9 @@ jobs:
             case "$file" in
               # Markdown under crates/ can be include_str!'d or doc-tested.
               crates/*) docs_only=false ;;
+              # The guides' config.toml and keyring examples are tested
+              # (crates/adapters/config/tests/guide.rs).
+              docs/guide/*) docs_only=false ;;
               docs/* | LICENSE* | .github/ISSUE_TEMPLATE/* | *.md) ;;
               *) docs_only=false ;;
             esac
