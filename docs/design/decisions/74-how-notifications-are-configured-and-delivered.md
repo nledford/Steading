@@ -2,7 +2,7 @@
 
 **A notification rule sends the events it names to one channel, a webhook, an ntfy topic or a healthchecks check, whose URL is a secret like its token; each notification is one HTTP request, sent once, through the proxy the environment names** (recorded 2026-11-12, §11; #277).
 
-**Amended by decision NN** (2026-11-14, #547): the notifier now subscribes before startup recovery, so an operation the daemon finds cut short when it starts, or a queued one it can't run again, is told as failed with `daemon-stopped`, its kind's `.failed` event, at most once; the "Cost" below no longer holds for it.
+**Amended by decision 91** (2026-11-14, #547): the notifier now subscribes before startup recovery, so an operation the daemon finds cut short when it starts, or a queued one it can't run again, is told as failed with `daemon-stopped`, its kind's `.failed` event, at most once; the "Cost" below no longer holds for it.
 
 - **The configuration.** `[notifications.channels.NAME]` and `[notifications.rules.NAME]` in `config.toml`, in the domain as `Notifications`, which `AgentConfig` owns, so a rule that names a channel or a plan the file doesn't have is refused with the rest of the file, and every save keeps the tables. A channel's URL, token and password come from a command, the keyring, a file or a variable, as a repository's password does (§10.2), never as text, and a command is refused when its program is named by a relative path.
 - **A URL is a secret.** A webhook's or an ntfy topic's URL is all anyone needs to post to it, and a healthchecks ping URL is all anyone needs to report a check as up. So it is read like a token, for one delivery, and never logged, sent or shown.

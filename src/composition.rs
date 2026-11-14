@@ -531,7 +531,7 @@ async fn state_over(
     let store: Arc<dyn OperationStore> = Arc::<SqliteStore>::clone(&log.store);
     let schedules: Arc<dyn ScheduleStore> = Arc::<SqliteStore>::clone(&log.store);
     // The bus and the notification rules come first, so that recovery can
-    // announce each operation it ends (decision NN).
+    // announce each operation it ends (decision 91).
     let bus: Arc<dyn EventBus> = Arc::new(BroadcastEventBus::new());
     notify_over(bus.as_ref(), Arc::clone(&config), Arc::clone(&store)).await;
     // Nothing has run yet, so an operation the log still shows as running was
@@ -1527,7 +1527,7 @@ impl PlanRuns for PlanRunner {
             // plan moved and the secret is refused, or the configuration can't be read. Left
             // queued, it would show as queued with nothing to run it until
             // the next start (decision 73). An end the log took is announced,
-            // as every end a start makes is (decision NN).
+            // as every end a start makes is (decision 91).
             Err(why) => {
                 let hyphenated = id.as_uuid().hyphenated();
                 log::warn!(

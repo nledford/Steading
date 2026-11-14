@@ -1,4 +1,4 @@
-# Decision NN: The operations a start ends are announced
+# Decision 91: The operations a start ends are announced
 
 **Each operation a start ends as failed with `daemon-stopped` is announced as any failed operation is, to the notification rules for its failure: a backup as `backup.failed`, a forget, a prune or a check as `forget.failed`, `prune.failed` or `check.failed`. It is announced at most once per start, only after the log has its end, so a start that couldn't write the end announces nothing and the next start, which finds nothing left to end, announces nothing again. The news names the time of the start that ended it** (recorded 2026-11-14, §5, §9, §11; amends decisions 40 and 74). From #547.
 

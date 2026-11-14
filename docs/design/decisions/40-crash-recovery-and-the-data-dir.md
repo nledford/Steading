@@ -4,4 +4,4 @@
 
 **Amended by decision 73** (2026-11-12, #274): recovery no longer ends the *queued* operations. It ends the running ones as before and leaves the queued ones to the persistent queue, which runs a queued backup again once the daemon listens and ends any other queued operation `daemon-stopped` then.
 
-**Amended by decision NN** (2026-11-14, #547): recovery now sends an event. It announces each operation it ends once the log has its end, as any failed operation is announced, with the time of the start that ended it, and the persistent queue does the same for a queued operation it ends; `finished_at` still stays NULL, and recovery still runs no hooks.
+**Amended by decision 91** (2026-11-14, #547): recovery now sends an event. It announces each operation it ends once the log has its end, as any failed operation is announced, with the time of the start that ended it, and the persistent queue does the same for a queued operation it ends; `finished_at` still stays NULL, and recovery still runs no hooks.
