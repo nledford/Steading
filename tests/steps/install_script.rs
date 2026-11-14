@@ -7,12 +7,17 @@
 //! The stand-ins keep, in the scenario's scratch folder, a list of every call
 //! (`install/state/calls`, one line each, the command's name and its
 //! arguments) and the answers a scenario chose: the version each tool
-//! reports, the system `uname` names, the glibc `getconf` reports, the
-//! toolchains rustup has (`install/state/toolchains`). Each cargo call also
-//! records the Rust it builds with, chosen as rustup and cargo choose it
-//! (`install/state/builds`). Tools a stand-in installs (`cargo install`,
-//! rustup's installer) are copied from `install/state/templates` into
-//! `~/.cargo/bin`, as the real ones would be.
+//! reports, the system `uname` names, the glibc, processors and free memory
+//! `getconf` reports, the toolchains rustup has (`install/state/toolchains`).
+//! Each cargo call also records the Rust it builds with, chosen as rustup and
+//! cargo choose it (`install/state/builds`). Tools a stand-in installs
+//! (`cargo install`, rustup's installer) are copied from
+//! `install/state/templates` into `~/.cargo/bin`, as the real ones would be.
+//! `curl` serves trunk's release archive from `install/state`: a tarball
+//! holding a trunk stand-in, built when a scenario removes trunk. The
+//! `sha256sum` stand-in gives that genuine archive the SHA-256 the script
+//! pins for the file's name, read from the script, and any other bytes
+//! another hash, so a tampered archive fails the script's check.
 //! `git` is the real one behind a stand-in that logs its calls, and the home
 //! folder's git configuration sends the script's clone of Ladderback's URL to
 //! `upstream`, a local repository with releases of the scenario's choosing.
@@ -94,9 +99,9 @@ printf '#!/bin/sh\necho "ladderback %s"\n' "$version" > "$root/bin/ladderback"
 /bin/chmod 755 "$root/bin/ladderback"
 "#;
 
-/// `cargo +stable install --locked <tool>…` installs the tools' stand-ins;
-/// `cargo install --locked --path .`, as `just install` runs it, installs
-/// Ladderback's; the wasm-bindgen build is only recorded.
+/// `cargo +stable install --locked [-j <n>] <tool>…` installs the tools'
+/// stand-ins; `cargo install --locked --path .`, as `just install` runs it,
+/// installs Ladderback's; the wasm-bindgen build is only recorded.
 ///
 /// Each call first records the Rust it builds with: the toolchain rustup
 /// chooses for it (`+<name>`, then RUSTUP_TOOLCHAIN, then the channel of the
@@ -120,8 +125,10 @@ case "$1" in +*) rust=${1#+} ;; esac
 printf '%s %s\n' "$rust" "$*" >> "$state/builds"
 if [ "$1" = +stable ] && [ "$2" = install ] && [ "$3" = --locked ]; then
   shift 3
+  if [ "$1" = -j ]; then shift 2; fi
   /bin/mkdir -p "$HOME/.cargo/bin"
   for tool in "$@"; do
+    tool=${tool%@*}
     /bin/cp "$state/templates/$tool" "$HOME/.cargo/bin/$tool" || exit 1
     [ "$tool" != just ] || echo 1.43.0 > "$state/just-version"
   done
@@ -219,6 +226,11 @@ const TRUNK: &str = r#"[ "$1" = --version ] || exit 64
 echo 'trunk 0.21.14'
 "#;
 
+/// The trunk inside the release archive the `curl` stand-in serves.
+const RELEASED_TRUNK: &str = r#"[ "$1" = --version ] || exit 64
+echo 'trunk (from its release archive)'
+"#;
+
 /// `xcode-select -p` names the Command Line Tools' folder when they are
 /// installed.
 const XCODE_SELECT: &str = r#"[ "$1" = -p ] || exit 64
@@ -244,18 +256,45 @@ const UNAME: &str = r#"case "$1" in
 esac
 "#;
 
-const GETCONF: &str = r#"[ "$1" = GNU_LIBC_VERSION ] || exit 64
-printf 'glibc %s\n' "$(/bin/cat "$state/glibc")"
+/// `getconf`: the glibc, the processors online, and the free memory in
+/// pages of 4 KiB.
+const GETCONF: &str = r#"case "$1" in
+  GNU_LIBC_VERSION) printf 'glibc %s\n' "$(/bin/cat "$state/glibc")" ;;
+  _NPROCESSORS_ONLN) /bin/cat "$state/processors" ;;
+  _AVPHYS_PAGES) /bin/cat "$state/free-pages" ;;
+  PAGESIZE) echo 4096 ;;
+  *) exit 64 ;;
+esac
 "#;
 
-/// Saves rustup's installer, the `rustup-init` stand-in, where `-o` says.
+/// Saves trunk's release archive for a URL under trunk's releases, and
+/// rustup's installer, the `rustup-init` stand-in, for any other, where `-o`
+/// says.
 const CURL: &str = r#"out=''
+url=''
 while [ $# -gt 0 ]; do
-  [ "$1" != -o ] || out=$2
+  case "$1" in
+    -o) out=$2; shift ;;
+    https://*) url=$1 ;;
+  esac
   shift
 done
 [ -n "$out" ] || exit 64
-/bin/cp "$state/templates/rustup-init" "$out"
+case "$url" in
+  https://github.com/trunk-rs/trunk/releases/download/*) /bin/cp "$state/trunk-served.tar.gz" "$out" ;;
+  *) /bin/cp "$state/templates/rustup-init" "$out" ;;
+esac
+"#;
+
+/// The genuine trunk archive has the SHA-256 the script pins for the file's
+/// name (`install/state/pinned/<name>`); any other bytes hash to something
+/// else.
+const SHA256SUM: &str = r#"pinned="$state/pinned/${1##*/}"
+if /usr/bin/cmp -s "$1" "$state/trunk-genuine.tar.gz" && [ -f "$pinned" ]; then
+  printf '%s  %s\n' "$(/bin/cat "$pinned")" "$1"
+else
+  printf '%s  %s\n' 0000000000000000000000000000000000000000000000000000000000000000 "$1"
+fi
 "#;
 
 /// rustup's installer: installs the rustup, cargo and rustc stand-ins.
@@ -281,6 +320,7 @@ const TOOLS: &[(&str, &str)] = &[
     ("uname", UNAME),
     ("getconf", GETCONF),
     ("curl", CURL),
+    ("sha256sum", SHA256SUM),
     ("xcode-select", XCODE_SELECT),
     ("sudo", NEVER),
 ];
@@ -290,7 +330,9 @@ const PACKAGE_MANAGERS: &[&str] = &["brew", "apt-get", "dnf", "pacman"];
 
 /// Real tools the script and its stand-ins need, linked into the stand-ins'
 /// folder.
-const REAL_TOOLS: &[&str] = &["sh", "cat", "mkdir", "mktemp", "rm"];
+const REAL_TOOLS: &[&str] = &[
+    "sh", "cat", "mkdir", "mktemp", "rm", "tar", "gzip", "install",
+];
 
 fn home(agent: &Agent) -> PathBuf {
     agent.scratch().join("home")
@@ -585,6 +627,28 @@ fn linux_with_glibc(agent: &mut Agent, machine: String, glibc: String) {
     set(agent, "glibc", &glibc);
 }
 
+#[given(regex = r#"^the system is (Linux|macOS) on "([^"]+)"$"#)]
+fn system_on(agent: &mut Agent, os: String, machine: String) {
+    set(
+        agent,
+        "uname-s",
+        if os == "macOS" { "Darwin" } else { "Linux" },
+    );
+    set(agent, "uname-m", &machine);
+}
+
+#[given(expr = "the system is Linux on {string} with {int} processors and {int} GB of free memory")]
+fn linux_with_memory(agent: &mut Agent, machine: String, processors: u32, gigabytes: u64) {
+    set(agent, "uname-s", "Linux");
+    set(agent, "uname-m", &machine);
+    set(agent, "processors", &processors.to_string());
+    set(
+        agent,
+        "free-pages",
+        &(gigabytes * 1024 * 1024 * 1024 / 4096).to_string(),
+    );
+}
+
 #[given("there is no C compiler")]
 fn no_c_compiler(agent: &mut Agent) {
     remove_tool(agent, "cc");
@@ -593,6 +657,11 @@ fn no_c_compiler(agent: &mut Agent) {
 #[given("there is no git")]
 fn no_git(agent: &mut Agent) {
     remove_tool(agent, "git");
+}
+
+#[given("there is no curl")]
+fn no_curl(agent: &mut Agent) {
+    remove_tool(agent, "curl");
 }
 
 #[given("there is no Node.js")]
@@ -612,14 +681,107 @@ fn just_is(agent: &mut Agent, version: String) {
 }
 
 #[given("just and trunk aren't installed")]
-fn no_just_or_trunk(agent: &mut Agent) {
+async fn no_just_or_trunk(agent: &mut Agent) {
     remove_tool(agent, "just");
-    remove_tool(agent, "trunk");
+    trunk_removed(agent).await;
 }
 
 #[given(regex = r"^(just|trunk) isn't installed$")]
-fn tool_not_installed(agent: &mut Agent, tool: String) {
-    remove_tool(agent, &tool);
+async fn tool_not_installed(agent: &mut Agent, tool: String) {
+    if tool == "trunk" {
+        trunk_removed(agent).await;
+    } else {
+        remove_tool(agent, &tool);
+    }
+}
+
+/// Removes trunk, and readies trunk's release as the `curl` stand-in serves
+/// it: a tarball holding a trunk stand-in, whose SHA-256 is the one the
+/// script pins for each archive's name.
+async fn trunk_removed(agent: &Agent) {
+    remove_tool(agent, "trunk");
+    let archive = state(agent).join("trunk-genuine.tar.gz");
+    let trunk = stand_in(agent, RELEASED_TRUNK);
+    trunk_archive(agent, "trunk-release", &trunk, archive.clone()).await;
+    fs::copy(&archive, state(agent).join("trunk-served.tar.gz")).expect("the served archive");
+    let pinned = state(agent).join("pinned");
+    fs::create_dir_all(&pinned).expect("the pinned SHA-256s' folder");
+    for (target, sha) in trunk_pins().1 {
+        fs::write(pinned.join(format!("trunk-{target}.tar.gz")), sha).expect("a pinned SHA-256");
+    }
+}
+
+/// Writes `archive`, a gzipped tarball holding `trunk` alone, as trunk's
+/// release archives do, with `text` in it; `folder` is the scratch folder,
+/// under the state folder, it is packed from.
+async fn trunk_archive(agent: &Agent, folder: &str, text: &str, archive: PathBuf) {
+    let folder = state(agent).join(folder);
+    fs::create_dir_all(&folder).expect("the archive's folder");
+    write_runnable(&folder.join("trunk"), text);
+    let mut command = Command::new(real("tar"));
+    command
+        .arg("-czf")
+        .arg(&archive)
+        .arg("-C")
+        .arg(&folder)
+        .arg("trunk")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    let output = blocking(move || {
+        spawn_gate::hold(|| command.spawn())
+            .expect("tar runs")
+            .wait_with_output()
+            .expect("tar ran")
+    })
+    .await;
+    assert!(
+        output.status.success(),
+        "tar: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// The trunk version the script pins (`TRUNK_VERSION=<version>`), and the
+/// SHA-256 it pins for each target's archive (`trunk_target=<target>
+/// trunk_sha=<sha>` on one line).
+fn trunk_pins() -> (Option<String>, Vec<(String, String)>) {
+    let script = fs::read_to_string(SCRIPT).expect("the install script");
+    let mut version = None;
+    let mut pins = Vec::new();
+    for line in script.lines() {
+        let (mut target, mut sha) = (None, None);
+        for word in line.split_whitespace() {
+            if let Some(value) = word.strip_prefix("TRUNK_VERSION=") {
+                version = Some(value.to_owned());
+            } else if let Some(value) = word.strip_prefix("trunk_target=") {
+                target = Some(value);
+            } else if let Some(value) = word.strip_prefix("trunk_sha=") {
+                sha = Some(value);
+            }
+        }
+        if let (Some(target), Some(sha)) = (target, sha)
+            && sha.len() == 64
+            && sha.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            pins.push((target.to_owned(), sha.to_owned()));
+        }
+    }
+    (version, pins)
+}
+
+/// The archive served instead is a well-formed one, with another trunk in
+/// it, so only the SHA-256 tells it apart.
+#[given("trunk's release has been replaced by another archive with another trunk in it")]
+async fn trunk_replaced(agent: &mut Agent) {
+    let other = stand_in(agent, "echo 'trunk (not from its release)'\n");
+    let served = state(agent).join("trunk-served.tar.gz");
+    trunk_archive(agent, "trunk-other", &other, served).await;
+}
+
+#[given("trunk's release can't be downloaded")]
+fn trunk_unavailable(agent: &mut Agent) {
+    fs::remove_file(state(agent).join("trunk-served.tar.gz")).expect("the served archive");
 }
 
 #[given("Rust isn't installed")]
@@ -884,6 +1046,16 @@ fn no_sudo(agent: &mut Agent) {
 
 #[then("nothing was installed, fetched or built")]
 fn nothing_done(agent: &mut Agent) {
+    nothing_installed_or_built(agent, true);
+}
+
+/// Downloading trunk's release installs nothing until it has been checked.
+#[then("nothing was installed or built")]
+fn nothing_installed(agent: &mut Agent) {
+    nothing_installed_or_built(agent, false);
+}
+
+fn nothing_installed_or_built(agent: &Agent, nor_fetched: bool) {
     let done: Vec<String> = calls_since_run(agent)
         .into_iter()
         .filter(|call| {
@@ -893,7 +1065,7 @@ fn nothing_done(agent: &mut Agent) {
                 name == "git" && words.any(|word| ["clone", "fetch", "checkout"].contains(&word));
             changes_git
                 || name == "cargo"
-                || name == "curl"
+                || (nor_fetched && name == "curl")
                 || call.starts_with("rustup toolchain install")
                 || name.starts_with("rustup-init")
                 || call.starts_with("just install")
@@ -905,6 +1077,58 @@ fn nothing_done(agent: &mut Agent) {
         !home(agent).join(".cargo").exists(),
         "something was installed into ~/.cargo"
     );
+}
+
+#[then(
+    expr = "trunk's release for {string} was installed, checked against the checksum the script pins"
+)]
+fn trunk_release_installed(agent: &mut Agent, target: String) {
+    let (version, pins) = trunk_pins();
+    let version = version.expect("the script pins a trunk version");
+    assert!(
+        pins.iter().any(|(pinned, _)| *pinned == target),
+        "the script pins no SHA-256 for trunk's {target} archive: {pins:?}"
+    );
+    let url = format!(
+        "https://github.com/trunk-rs/trunk/releases/download/v{version}/trunk-{target}.tar.gz"
+    );
+    let calls = calls_since_run(agent);
+    assert!(
+        calls
+            .iter()
+            .any(|call| call.starts_with("curl ") && call.split(' ').any(|word| word == url)),
+        "{url} wasn't downloaded: {calls:?}"
+    );
+    let installed = home(agent).join(".cargo/bin/trunk");
+    let text = fs::read_to_string(&installed).expect("trunk is in ~/.cargo/bin");
+    assert_eq!(
+        text,
+        stand_in(agent, RELEASED_TRUNK),
+        "~/.cargo/bin/trunk isn't the one in trunk's release"
+    );
+    let mode = fs::metadata(&installed)
+        .expect("trunk is in ~/.cargo/bin")
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o111, 0o111, "trunk isn't runnable: {mode:o}");
+}
+
+#[then(regex = r"^(just|trunk) wasn't built$")]
+fn not_built(agent: &mut Agent, tool: String) {
+    let built: Vec<String> = calls_since_run(agent)
+        .into_iter()
+        .filter(|call| call.starts_with("cargo ") && call.split(' ').any(|word| word == tool))
+        .collect();
+    assert!(built.is_empty(), "{tool} was built: {built:?}");
+}
+
+#[then("trunk's release wasn't downloaded")]
+fn trunk_not_downloaded(agent: &mut Agent) {
+    let downloads: Vec<String> = calls_since_run(agent)
+        .into_iter()
+        .filter(|call| call.starts_with("curl ") && call.contains("/trunk-rs/"))
+        .collect();
+    assert!(downloads.is_empty(), "{downloads:?}");
 }
 
 #[then("the source was updated, not fetched again in full")]
@@ -925,10 +1149,16 @@ fn updated_not_cloned(agent: &mut Agent) {
     );
 }
 
+/// `{trunk version}` in the command stands for the trunk version the script
+/// pins.
 #[then(expr = "the tools were installed with {string}")]
 fn tools_installed_with(agent: &mut Agent, command: String) {
+    let command = match trunk_pins().0 {
+        Some(version) => command.replace("{trunk version}", &version),
+        None => command,
+    };
     let calls = calls_since_run(agent);
-    assert!(calls.contains(&command), "{calls:?}");
+    assert!(calls.contains(&command), "{command}: {calls:?}");
 }
 
 /// The calls of rustup's installer, which the script saves and runs with sh.
