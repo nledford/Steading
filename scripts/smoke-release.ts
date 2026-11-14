@@ -200,7 +200,8 @@ interface Place {
   run(args: string[], env: Env): Promise<Output>;
   spawn(args: string[], env: Env): Daemon;
   mkdir(dir: string): Promise<void>;
-  writeFile(file: string, content: string): Promise<void>;
+  /** `secret`: readable by its owner only, as a password file should be. */
+  writeFile(file: string, content: string, secret?: boolean): Promise<void>;
   /** Sends one raw HTTP request to 127.0.0.1:`port` and returns the raw response. */
   exchange(port: number, request: Buffer): Promise<Buffer>;
   describe(): Promise<string>;
@@ -224,7 +225,7 @@ function nativePlace(binary: string): Place {
         if (/^\d+$/.test(pid)) process.kill(Number(pid), "SIGTERM");
       }),
     mkdir: async (dir) => void mkdirSync(dir, { recursive: true }),
-    writeFile: async (file, content) => writeFileSync(file, content),
+    writeFile: async (file, content, secret) => writeFileSync(file, content, secret ? { mode: 0o600 } : {}),
     exchange: (port, request) => {
       const { promise, resolve, reject } = Promise.withResolvers<Buffer>();
       const chunks: Buffer[] = [];
@@ -289,8 +290,9 @@ async function containerPlace(name: string, image: string, binary: string): Prom
       const made = await docker(["exec", container, "mkdir", "-p", dir]);
       if (made.status !== 0) throw new Error(`mkdir ${dir}: ${made.stderr.trim()}`);
     },
-    writeFile: async (file, content) => {
-      const written = await docker(["exec", "--interactive", container, "sh", "-c", 'cat > "$0"', file], content);
+    writeFile: async (file, content, secret) => {
+      const write = secret ? 'umask 077 && cat > "$0"' : 'cat > "$0"';
+      const written = await docker(["exec", "--interactive", container, "sh", "-c", write, file], content);
       if (written.status !== 0) throw new Error(`writing ${file}: ${written.stderr.trim()}`);
     },
     // bash's /dev/tcp: a clean image has no HTTP client, and a container
@@ -531,7 +533,9 @@ async function checkProgram(place: Place, version: string, report: Report): Prom
   await place.mkdir(`${scratch}/pseudo/data`);
   await place.mkdir(source);
   for (const n of [1, 2, 3]) await place.writeFile(`${source}/file-${n}.txt`, `demo file ${n}\n`);
-  await place.writeFile(passwordFile, `${PASSWORD}\n`);
+  // Readable by its owner only: the daemon warns of a password file others
+  // can read (secret-file-readable), and the backup must succeed cleanly.
+  await place.writeFile(passwordFile, `${PASSWORD}\n`, true);
   await place.writeFile(
     `${scratch}/daemon/config/config.toml`,
     [
