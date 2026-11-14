@@ -140,6 +140,9 @@ fn serve_until_listening(scratch: &Path, options: &str, env: &[(String, String)]
             return std::fs::read_to_string(&log_path).unwrap_or(text);
         }
         if let Some(status) = child.try_wait().expect("the daemon's status") {
+            // Read again: it may have written its last words and exited
+            // between the read above and this wait.
+            let text = std::fs::read_to_string(&log_path).unwrap_or(text);
             panic!("ladderback exited with {status} before it listened: {text}");
         }
         if began.elapsed() >= START_TIMEOUT {
