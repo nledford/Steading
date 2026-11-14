@@ -30,6 +30,14 @@ Every user-visible behaviour starts as a Given/When/Then scenario in `features/<
 - **A time limit on each scenario.** Both Rust runners watch their scenarios with `testkit::scenario_watch` from a thread of its own: a scenario that runs longer than its runner's limit (60 s for the acceptance runner, 120 s for the `@e2e` one) stops the run with exit status 1 and its name and line, so a step that waits for something that never comes fails within minutes instead of holding CI until it cancels the job (#246). When the run ends, each runner names its slowest scenario, the figure the limit is chosen from. Raising a limit to fit a slow scenario is weakening a check.
 - **No process outlives its scenario.** A step that starts `ladderback serve`, or any process that runs until something stops it and inherits the runner's stdout or stderr, starts it as a `testkit::children::Owned` (the pipe holder in `tests/steps/operations.rs` needn't: its output is piped, and it lets go when the runner's end of its stdin closes). The scenario's end drops it, whether the scenario passed, failed or panicked, and the scenario watch ends every one still running before it stops a run at its limit, since `std::process::exit` runs no destructor. Ending one stops the process, kills the process group each of its children leads (the workers and hooks of a daemon still running each lead one), then kills and reaps it. A daemon left running would hold the runner's output pipe, and whatever waits for that pipe to close, `just red-first` among them, would wait for its own timeout (#499).
 - **`@ui` scenarios** drive the browser. They share `features/` with the rest, but run under `@cucumber/cucumber` (Node) with Playwright, from M0. Both Rust runners skip them. Their steps find elements only by role and accessible name (`getByRole`), so a control a screen reader can't identify can't be tested either (A2).
+- **Running the `@ui` journeys on Fedora.** `just setup` installs the tools and Playwright's Chromium, but not the system libraries Chromium needs to run the `@ui` journeys (`just test-ui`). On Fedora, work in a [toolbox](https://containertoolbx.org/) or [distrobox](https://distrobox.it/) container: it is the only place `dnf` works on an atomic host (Silverblue, Bazzite), and it keeps the host clean on Workstation and Server too.
+
+  ```sh
+  toolbox create ladderback && toolbox enter ladderback
+  sudo dnf install nss atk at-spi2-core libdrm libxkbcommon libXcomposite libXdamage libXfixes libXrandr mesa-libgbm alsa-lib
+  ```
+
+  Outside a container, Workstation and Server take the same list with `sudo dnf install`; an atomic host can layer it with `rpm-ostree install`, which needs a reboot. This list is what headless Chromium needs to launch on Fedora 45.
 - **A milestone is done when its feature files pass** (§14).
 
 Examples, one per core rule:
