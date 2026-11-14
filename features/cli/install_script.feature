@@ -112,11 +112,12 @@ Feature: Install Ladderback with one command
 
   Rule: It installs what needs no administrator rights after asking once
 
-    Scenario: Missing just and trunk are built with the stable Rust
+    Scenario: A missing just is built with the stable Rust, and a missing trunk is taken from its release
       Given just and trunk aren't installed
       When the owner runs the install script with "--yes"
       Then the command exits with status 0
-      And the tools were installed with "cargo +stable install --locked just trunk"
+      And the tools were installed with "cargo +stable install --locked just"
+      And trunk's release for "x86_64-unknown-linux-musl" was installed, checked against the checksum the script pins
       And the source folder holds the release "v0.2.0"
       And the release was installed
 
@@ -124,7 +125,8 @@ Feature: Install Ladderback with one command
       Given trunk isn't installed
       When the owner runs the install script with "--yes"
       Then the command exits with status 0
-      And the tools were installed with "cargo +stable install --locked trunk"
+      And trunk's release for "x86_64-unknown-linux-musl" was installed, checked against the checksum the script pins
+      And just wasn't built
 
     Scenario: A just older than 1.40 is replaced
       Given just is version "1.39.0"
@@ -139,7 +141,8 @@ Feature: Install Ladderback with one command
       When the owner runs the install script with "--yes"
       Then the command exits with status 0
       And rustup's installer ran with "-y"
-      And the tools were installed with "cargo +stable install --locked just trunk"
+      And the tools were installed with "cargo +stable install --locked just"
+      And trunk's release for "x86_64-unknown-linux-musl" was installed, checked against the checksum the script pins
       And the release was installed
 
     Scenario: Asked at the terminal, the owner agrees once and rustup asks its own questions
@@ -202,6 +205,93 @@ Feature: Install Ladderback with one command
       When the owner runs the install script with "--yes"
       Then the command exits with status 1
       And standard error says "https://github.com/casey/just/releases"
+      And nothing was installed, fetched or built
+
+  Rule: It takes trunk's prebuilt release, checked, and builds trunk only where there is none
+    Building trunk from source can take more memory than a small machine has:
+    on a Raspberry Pi with 4 GB it took all of it and all of the swap, and the
+    machine reset (#538). So a missing trunk comes from trunk's own release
+    for the system, at the version the script pins, checked against the
+    SHA-256 the script pins for that archive. On Linux that is the static
+    (musl) build, which runs whatever glibc and OpenSSL the system has. Only
+    where trunk publishes no release is it built from source, at the version
+    the script pins, with one build job per 2 GB of free memory, at least
+    one, and no more than the system has processors.
+
+    Scenario Outline: A missing trunk is taken from its release on <os> on <machine>
+      Given the system is <os> on "<machine>"
+      And trunk isn't installed
+      When the owner runs the install script with "--yes"
+      Then the command exits with status 0
+      And trunk's release for "<target>" was installed, checked against the checksum the script pins
+      And trunk wasn't built
+      And the release was installed
+
+      Examples:
+        | os    | machine | target                     |
+        | Linux | x86_64  | x86_64-unknown-linux-musl  |
+        | Linux | aarch64 | aarch64-unknown-linux-musl |
+        | macOS | arm64   | aarch64-apple-darwin       |
+        | macOS | x86_64  | x86_64-apple-darwin        |
+
+    Scenario: Without rustup, a missing trunk is taken from its release too
+      Given Rust "1.100.0" is installed without rustup
+      And trunk isn't installed
+      When the owner runs the install script with "--yes"
+      Then the command exits with status 0
+      And trunk's release for "x86_64-unknown-linux-musl" was installed, checked against the checksum the script pins
+      And the release was installed
+
+    Scenario: A trunk release that doesn't match the pinned checksum is refused before anything is installed
+      Given Rust isn't installed
+      And just and trunk aren't installed
+      And trunk's release has been replaced by another archive with another trunk in it
+      When the owner runs the install script with "--yes"
+      Then the command exits with status 1
+      And standard error says "doesn't match the SHA-256 this script pins"
+      And nothing was installed or built
+
+    Scenario: A trunk release that can't be downloaded installs nothing
+      Given Rust isn't installed
+      And just and trunk aren't installed
+      And trunk's release can't be downloaded
+      When the owner runs the install script with "--yes"
+      Then the command exits with status 1
+      And standard error says "trunk's release couldn't be downloaded"
+      And nothing was installed or built
+
+    Scenario: Without curl, curl is named before trunk's release is downloaded
+      Given there is no curl
+      And trunk isn't installed
+      When the owner runs the install script with "--yes"
+      Then the command exits with status 1
+      And standard error says "curl, to download"
+      And nothing was installed, fetched or built
+
+    Scenario Outline: Where trunk publishes no release, it is built with one job per 2 GB of free memory
+      Given the system is Linux on "<machine>" with 4 processors and <memory> GB of free memory
+      And trunk isn't installed
+      When the owner runs the install script with "--yes"
+      Then the command exits with status 0
+      And standard output says "publishes no release"
+      And the tools were installed with "cargo +stable install --locked -j <jobs> trunk@{trunk version}"
+      And trunk's release wasn't downloaded
+      And the release was installed
+
+      Examples:
+        | machine | memory | jobs |
+        | riscv64 | 1      | 1    |
+        | armv7l  | 5      | 2    |
+        | riscv64 | 64     | 4    |
+
+    Scenario: Without rustup, where trunk publishes no release, trunk is named with rustup
+      Given Rust "1.100.0" is installed without rustup
+      And the system is Linux on "riscv64"
+      And trunk isn't installed
+      When the owner runs the install script with "--yes"
+      Then the command exits with status 1
+      And standard error says "publishes no release"
+      And standard error says "https://rustup.rs"
       And nothing was installed, fetched or built
 
   Rule: With rustup, it builds with the Rust the release pins
