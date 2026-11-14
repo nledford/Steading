@@ -131,7 +131,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "jiff",
  "serde",
@@ -140,7 +140,7 @@ dependencies = [
 
 [[package]]
 name = "app"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api",
  "app",
@@ -892,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "config-adapter"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "app",
  "async-trait",
@@ -1608,7 +1608,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "croner",
  "jiff",
@@ -1685,7 +1685,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api",
  "app",
@@ -2379,7 +2379,7 @@ dependencies = [
 
 [[package]]
 name = "hooks"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "app",
  "async-trait",
@@ -2421,7 +2421,7 @@ dependencies = [
 
 [[package]]
 name = "http-adapter"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api",
  "app",
@@ -2955,7 +2955,7 @@ dependencies = [
 
 [[package]]
 name = "interop"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "app",
  "async-trait",
@@ -3196,7 +3196,7 @@ checksum = "a4933f3f57a8e9d9da04db23fb153356ecaf00cbd14aee46279c33dc80925c37"
 
 [[package]]
 name = "l10n"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api",
  "fixed_decimal",
@@ -3224,7 +3224,7 @@ dependencies = [
 
 [[package]]
 name = "ladderback"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api",
  "app",
@@ -3712,7 +3712,7 @@ checksum = "38bf9645c8b145698bb0b18a4637dcacbc421ea49bef2317e4fd8065a387cf21"
 
 [[package]]
 name = "notify-adapter"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api",
  "app",
@@ -4820,7 +4820,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "platform"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "app",
  "argon2",
@@ -6012,7 +6012,7 @@ dependencies = [
 
 [[package]]
 name = "secrets"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "app",
  "async-trait",
@@ -6454,7 +6454,7 @@ dependencies = [
 
 [[package]]
 name = "spawn-gate"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "tokio",
 ]
@@ -6696,7 +6696,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "store"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api",
  "app",
@@ -6924,7 +6924,7 @@ dependencies = [
 
 [[package]]
 name = "testkit"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "nix 0.31.3",
  "spawn-gate",
@@ -7734,7 +7734,7 @@ dependencies = [
 
 [[package]]
 name = "web"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api",
  "console_error_panic_hook",

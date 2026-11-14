@@ -7,6 +7,41 @@ All notable changes to Ladderback are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/nledford/Ladderback/compare/v0.2.0...v0.3.0) - 2026-11-14
+
+### Added
+
+- Install Ladderback with one command ([#419](https://github.com/nledford/Ladderback/pull/419))
+- Show which step a running operation is in ([#436](https://github.com/nledford/Ladderback/pull/436))
+- Reach a repository at several locations, chosen by network ([#443](https://github.com/nledford/Ladderback/pull/443))
+- Tell a wired network link on macOS ([#454](https://github.com/nledford/Ladderback/pull/454))
+- Warn that a network rule can't keep a plain-HTTP location's credentials from an impostor ([#470](https://github.com/nledford/Ladderback/pull/470))
+- Guide a first plan from the start page and the README ([#487](https://github.com/nledford/Ladderback/pull/487))
+- Show why an operation failed on the Operations page ([#496](https://github.com/nledford/Ladderback/pull/496))
+- Try a repository's HTTPS and local locations at the same time ([#500](https://github.com/nledford/Ladderback/pull/500))
+- Keep a scheduled run refused for its secret as a failed backup ([#501](https://github.com/nledford/Ladderback/pull/501))
+- Show the running version in the web UI's header ([#507](https://github.com/nledford/Ladderback/pull/507))
+- Allow listening on the network with sign-in off, as Backrest does ([#509](https://github.com/nledford/Ladderback/pull/509))
+- Name the build beside the version, with the commit between releases ([#541](https://github.com/nledford/Ladderback/pull/541))
+
+### Fixed
+
+- Build with the pinned Rust whatever RUSTUP_TOOLCHAIN says, and install it explicitly ([#427](https://github.com/nledford/Ladderback/pull/427))
+- Give the first job of a newly added repository its cache and its repository ([#435](https://github.com/nledford/Ladderback/pull/435))
+- Show a running operation of unknown size as working, not 0% ([#434](https://github.com/nledford/Ladderback/pull/434))
+- Make the progress bar focusable and calm for screen readers ([#439](https://github.com/nledford/Ladderback/pull/439))
+- Keep keyboard focus on the row when a run's Cancel button goes away ([#441](https://github.com/nledford/Ladderback/pull/441))
+- Keep a Linux backup running when the thread that started its worker ends ([#449](https://github.com/nledford/Ladderback/pull/449))
+- Warn about and mask a location's userinfo given by a ${file:…} reference ([#467](https://github.com/nledford/Ladderback/pull/467))
+- Report a locked keyring as unavailable, not as a missing entry ([#491](https://github.com/nledford/Ladderback/pull/491))
+- Say when a REST server refuses the repository's credentials ([#489](https://github.com/nledford/Ladderback/pull/489))
+- Warn when an exclude with a slash in the middle can never match ([#511](https://github.com/nledford/Ladderback/pull/511))
+- Warn about every plain-HTTP location that sends credentials ([#514](https://github.com/nledford/Ladderback/pull/514))
+- Name a refused password or credential as such, and keep a resumed run's refusal ([#520](https://github.com/nledford/Ladderback/pull/520))
+- Give the Result column room, keep addresses whole and name tables by the heading ([#523](https://github.com/nledford/Ladderback/pull/523))
+- Name warnings on history rows, keep API answers out of caches, and warn of readable secret files and proxied hosts ([#540](https://github.com/nledford/Ladderback/pull/540))
+- Reinstalling or removing the service on macOS waits for the old daemon to stop ([#545](https://github.com/nledford/Ladderback/pull/545))
+
 ## [0.2.0](https://github.com/nledford/Ladderback/compare/v0.1.1...v0.2.0) - 2026-11-12
 
 The first release worth using on your own machines: plans run on their schedules, with catch-up after sleep, cron in a time zone, a choice of skipping or queuing a run while the last one is going, a limit on how many run at once, and retries of a failed scheduled backup. Notifications go to webhooks, ntfy and healthchecks. Ladderback installs as a systemd user service or launchd agent, and an optional sign-in protects the web UI. There is still no restore: use the `rustic` CLI, and try a restore before relying on the backups. Restore comes in 0.3.
