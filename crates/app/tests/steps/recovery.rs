@@ -5,14 +5,18 @@
 //! every plan the scenario names, less those it removed, each on the
 //! repository "nas" unless the scenario moved it), and read the log back
 //! through its port, and what the queue ran again and said off a recording.
+//! What the start announces is told at once to the notification rules of
+//! `steps/notifications.rs`, which read the operation from the same log.
 
 use std::assert_matches;
 use std::sync::Arc;
 
+use api::UiEvent;
 use app::fakes::InMemoryOperationStore;
+use app::notifications::Notify;
 use app::ports::{
-    Clock, EngineResult, HistoryPage, HistoryQuery, OperationDetail, OperationStore, Start,
-    StoreError,
+    Clock, EngineResult, EventBus, HistoryPage, HistoryQuery, OperationDetail, OperationStore,
+    Start, StoreError,
 };
 use app::recovery::{QueuedEnd, RecoverOperations};
 use app::schedule::ScheduleReport;
@@ -21,7 +25,8 @@ use cucumber::{given, then, when};
 use domain::execution::{
     FailureReason, Operation, OperationKind, OperationStatus, Target, Trigger, Warning, WarningKind,
 };
-use domain::{OperationId, PlanId, RepositoryId, Timestamp, Uuid};
+use domain::{OperationId, PlanId, RepositoryAlias, RepositoryId, Timestamp, Uuid};
+use futures::stream::BoxStream;
 
 use super::Agent;
 use super::scheduler_steps::{RecordingRuns, config_with_plans};
@@ -45,7 +50,7 @@ pub struct RecoveryWorld {
     made: u128,
     seeded: Vec<Seeded>,
     /// What each start of the daemon reported, oldest first.
-    starts: Vec<Result<u64, StoreError>>,
+    starts: Vec<Result<usize, StoreError>>,
     /// The plans the configuration no longer has.
     removed: Vec<String>,
     /// The plans the configuration now has on another repository, and the
@@ -121,7 +126,7 @@ impl RecoveryWorld {
             })
     }
 
-    fn last_start(&self) -> &Result<u64, StoreError> {
+    fn last_start(&self) -> &Result<usize, StoreError> {
         self.starts
             .last()
             .expect("the daemon started again in the scenario")
@@ -267,7 +272,14 @@ async fn backup_queued_on(agent: &mut Agent, plan: String, repository: String) {
 #[given(expr = "the log shows a {word} of the repository {string} as running")]
 async fn maintenance_running(agent: &mut Agent, kind: String, repository: String) {
     let kind = maintenance_kind(&kind);
-    let mut op = agent.recovery.queue(kind, None, Some(&repository));
+    // By the alias the configuration gives the repository, as a maintenance
+    // operation the daemon runs is, so its news names it.
+    let mut op = agent
+        .recovery
+        .queue(kind, None, Some(&repository))
+        .with_repository_alias(
+            RepositoryAlias::parse(&repository).expect("the scenario's alias is valid"),
+        );
     start(agent, &mut op).await;
     agent.recovery.remember(&op, None, Some(&repository), None);
 
@@ -370,14 +382,21 @@ fn config_unreadable(agent: &mut Agent) {
     agent.notifications.unreadable = true;
 }
 
+/// The start's recovery over `store`, announcing on a bus that tells the
+/// scenario's notification rules of each piece of news as it is published.
+async fn recovery(agent: &Agent, store: Arc<dyn OperationStore>) -> RecoverOperations {
+    let notify = agent.notifications.notify_over(agent.store.clone()).await;
+    RecoverOperations::new(store).with_events(Arc::new(Notifying(notify)))
+}
+
 #[when("the daemon starts again")]
 async fn daemon_starts_again(agent: &mut Agent) {
-    let recovery = RecoverOperations::new(agent.store.clone());
-    let recovered = recovery.recover().await;
+    let recovery = recovery(agent, agent.store.clone()).await;
+    let recovered = recovery.recover(agent.clock.now()).await;
     agent.recovery.starts.push(
         recovered
             .as_ref()
-            .map(|recovered| recovered.ended)
+            .map(|recovered| recovered.ended.len())
             .map_err(Clone::clone),
     );
     let runs = Arc::new(RecordingRuns::new(agent.clock.clone()));
@@ -412,13 +431,29 @@ async fn daemon_starts_again(agent: &mut Agent) {
 
 #[when("the daemon starts again on a log that cannot be written")]
 async fn daemon_starts_on_unwritable_log(agent: &mut Agent) {
-    let recovery = RecoverOperations::new(Arc::new(UnwritableLog(agent.store.clone())));
+    let recovery = recovery(agent, Arc::new(UnwritableLog(agent.store.clone()))).await;
+    let recovered = recovery.recover(agent.clock.now()).await;
     agent
         .recovery
         .starts
-        .push(recovery.recover().await.map(|recovered| recovered.ended));
+        .push(recovered.map(|recovered| recovered.ended.len()));
     // A start whose recovery failed refuses to serve: nothing runs again.
     agent.recovery.runs = Some(Arc::new(RecordingRuns::new(agent.clock.clone())));
+}
+
+/// The daemon's event bus, as far as the notification rules hear it: what is
+/// published is told to them at once, and nothing else listens.
+struct Notifying(Notify);
+
+#[async_trait]
+impl EventBus for Notifying {
+    async fn publish(&self, event: UiEvent) {
+        self.0.tell(event).await;
+    }
+
+    async fn subscribe(&self) -> BoxStream<'static, UiEvent> {
+        Box::pin(futures::stream::empty())
+    }
 }
 
 /// What the agent says when the queue ends an operation, as the scenario
@@ -603,12 +638,12 @@ async fn repository_is_free(agent: &mut Agent, repository: String) {
 }
 
 #[then(expr = "the daemon's start ended {int} operation(s)")]
-fn start_ended(agent: &mut Agent, count: u64) {
+fn start_ended(agent: &mut Agent, count: usize) {
     assert_eq!(agent.recovery.last_start(), &Ok(count));
 }
 
 #[then(expr = "the daemon's first start ended {int} operation(s)")]
-fn first_start_ended(agent: &mut Agent, count: u64) {
+fn first_start_ended(agent: &mut Agent, count: usize) {
     let first = agent
         .recovery
         .starts

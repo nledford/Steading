@@ -518,26 +518,31 @@ impl OperationStore for SqliteStore {
             .bind(failure.args.as_str())
             .bind(failure.detail)
             .bind(codec::status_text(&OperationStatus::Running))
-            .execute(&mut *tx)
+            .fetch_all(&mut *tx)
             .await
-            .map_err(unavailable)?
-            .rows_affected();
+            .map_err(unavailable)?;
         let rows = sqlx::query(sql::LIST_QUEUED)
             .persistent(true)
             .fetch_all(&mut *tx)
             .await
             .map_err(unavailable)?;
         tx.commit().await.map_err(unavailable)?;
-        // A queued row that can't be read is no reason to refuse the start:
-        // it is reported, and stays queued as it is.
-        let mut recovered = Recovered {
-            ended,
-            ..Recovered::default()
-        };
+        // A row that can't be read is no reason to refuse the start: it is
+        // reported, a running one ended all the same and a queued one left
+        // queued as it is.
+        let mut recovered = Recovered::default();
+        for row in &ended {
+            match row::operation_id(row) {
+                Ok(id) => recovered.ended.push(id),
+                Err(error) => recovered.unreadable_ended.push(error),
+            }
+        }
+        // RETURNING follows no order; IDs sort in time order (UUIDv7).
+        recovered.ended.sort_unstable();
         for row in &rows {
             match row::record(row) {
                 Ok(record) => recovered.queued.push(record),
-                Err(error) => recovered.unreadable.push(error),
+                Err(error) => recovered.unreadable_queued.push(error),
             }
         }
         Ok(recovered)

@@ -72,13 +72,14 @@ pub(crate) const LIST_WARNING_KINDS: &str = concat!(
 );
 
 /// Ends every running operation as failed (startup recovery), and nothing
-/// else about it: not its times, warnings or target. Parameters: `status`,
-/// `error_code`, `error_args`, `error_detail`, then the status it ends,
-/// running. A running maintenance row stops being one, so the
-/// one-maintenance index stops holding its repository.
+/// else about it: not its times, warnings or target, and returns the ID of
+/// each it ended, in no set order. Parameters: `status`, `error_code`,
+/// `error_args`, `error_detail`, then the status it ends, running. A
+/// running maintenance row stops being one, so the one-maintenance index
+/// stops holding its repository.
 pub(crate) const FAIL_RUNNING: &str = concat!(
     "UPDATE operations SET status = ?, error_code = ?, error_args = ?, error_detail = ? ",
-    "WHERE status = ?"
+    "WHERE status = ? RETURNING id"
 );
 
 /// The persistent queue (§5), oldest first: the queued operations by ID,

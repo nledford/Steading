@@ -23,7 +23,7 @@ pub(super) async fn run(store: &dyn OperationStore) {
     a_running_operation_ends_failed_and_keeps_all_else(store).await;
     a_queued_operation_stays_queued_and_is_handed_back(store).await;
     finished_operations_are_untouched(store).await;
-    the_count_is_exact_and_a_second_recovery_finds_nothing(store).await;
+    each_ended_operation_is_named_and_a_second_recovery_finds_nothing(store).await;
     a_running_maintenance_operation_stops_holding_its_repository(store).await;
     recovery_frees_only_what_maintenance_held(store).await;
     nothing_unfinished_ends_succeeded(store).await;
@@ -95,8 +95,10 @@ async fn try_start(store: &dyn OperationStore, op: &Operation) -> Option<Start> 
 
 /// How many operations recovery ended; a store that can't recover fails the
 /// suite.
-async fn recover(store: &dyn OperationStore) -> Option<u64> {
-    recovered(store).await.map(|recovered| recovered.ended)
+async fn recover(store: &dyn OperationStore) -> Option<usize> {
+    recovered(store)
+        .await
+        .map(|recovered| recovered.ended.len())
 }
 
 /// What recovery did and found; a store that can't recover fails the suite.
@@ -232,12 +234,13 @@ async fn a_queued_operation_stays_queued_and_is_handed_back(store: &dyn Operatio
     assert_eq!(
         found,
         Some(Recovered {
-            ended: 0,
+            ended: Vec::new(),
             queued: vec![
                 OperationRecord::of(&older, None),
                 OperationRecord::of(&newer, None)
             ],
-            unreadable: Vec::new(),
+            unreadable_ended: Vec::new(),
+            unreadable_queued: Vec::new(),
         }),
         "a queued operation isn't ended: it comes back as it was queued, oldest first"
     );
@@ -329,7 +332,9 @@ async fn finished_operations_are_untouched(store: &dyn OperationStore) {
     }
 }
 
-async fn the_count_is_exact_and_a_second_recovery_finds_nothing(store: &dyn OperationStore) {
+async fn each_ended_operation_is_named_and_a_second_recovery_finds_nothing(
+    store: &dyn OperationStore,
+) {
     let (Some(repo_a), Some(repo_b), Some(music)) =
         (numbered(0x71), numbered(0x72), plan("demo-recover-music"))
     else {
@@ -358,8 +363,8 @@ async fn the_count_is_exact_and_a_second_recovery_finds_nothing(store: &dyn Oper
 
     assert_eq!(
         recovered(store).await.map(|found| found.ended),
-        Some(4),
-        "every running operation is ended, and only those"
+        Some(vec![id(0x7302), id(0x7303), id(0x7305), id(0x7306)]),
+        "every running operation is ended, and only those, oldest first"
     );
     for n in [0x7302, 0x7303, 0x7305, 0x7306] {
         assert_eq!(

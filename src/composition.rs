@@ -318,7 +318,14 @@ impl Background {
         let queue = Arc::clone(&self.runner.queue);
         let events = Arc::clone(&self.runner.events);
         let runs: Arc<dyn PlanRuns> = self.runner;
-        resume_queued(self.queued, self.config.as_ref(), self.store, runs.as_ref()).await;
+        resume_queued(
+            self.queued,
+            self.config.as_ref(),
+            self.store,
+            Arc::clone(&events),
+            runs.as_ref(),
+        )
+        .await;
         Scheduler {
             clock: Arc::new(SystemClock),
             random,
@@ -342,11 +349,12 @@ impl Background {
 /// configuration read once now. A configuration that can't be read builds
 /// no job, so each ends as failed with `daemon-stopped`, and the log says
 /// why (decision 73): left queued, it would show as queued with nothing to
-/// run it until the next start.
+/// run it until the next start. Each that ends is announced on `events`.
 async fn resume_queued(
     queued: Vec<OperationRecord>,
     config: &dyn ConfigStore,
     store: Arc<dyn OperationStore>,
+    events: Arc<dyn EventBus>,
     runs: &dyn PlanRuns,
 ) {
     let config = match config.load().await {
@@ -359,6 +367,7 @@ async fn resume_queued(
         }
     };
     RecoverOperations::new(store)
+        .with_events(events)
         .resume(queued, config.as_ref(), runs, SystemClock.now())
         .await;
 }
@@ -521,16 +530,21 @@ async fn state_over(
 ) -> Result<(AppState, Background), Refused> {
     let store: Arc<dyn OperationStore> = Arc::<SqliteStore>::clone(&log.store);
     let schedules: Arc<dyn ScheduleStore> = Arc::<SqliteStore>::clone(&log.store);
+    // The bus and the notification rules come first, so that recovery can
+    // announce each operation it ends (decision 91).
+    let bus: Arc<dyn EventBus> = Arc::new(BroadcastEventBus::new());
+    notify_over(bus.as_ref(), Arc::clone(&config), Arc::clone(&store)).await;
     // Nothing has run yet, so an operation the log still shows as running was
     // left by a process that stopped. It ends as failed now, which also lets
     // go of the repository a running maintenance operation held (I7). A log
     // that cannot be changed is a refusal: serving over it would keep that
     // repository held for good. Queued operations stay queued (decision 73).
     let recovered = RecoverOperations::new(Arc::clone(&store))
-        .recover()
+        .with_events(Arc::clone(&bus))
+        .recover(SystemClock.now())
         .await
         .map_err(|error| recovery_refused(&log.database, &error))?;
-    let ended = recovered.ended;
+    let ended = recovered.ended.len();
     if ended > 0 {
         log::warn!(
             "ended {ended} operation(s) the operation log still showed as running: the daemon that ran them stopped before they finished"
@@ -538,7 +552,13 @@ async fn state_over(
     }
     // By its code alone: the store's account of a row repeats what the row
     // holds, which nobody has checked for a value (I4).
-    for error in &recovered.unreadable {
+    for error in &recovered.unreadable_ended {
+        log::warn!(
+            "a running operation in the operation log can't be read: it has ended as failed without being named ({})",
+            error.code()
+        );
+    }
+    for error in &recovered.unreadable_queued {
         log::warn!(
             "a queued operation in the operation log can't be read, and stays queued ({})",
             error.code()
@@ -556,8 +576,6 @@ async fn state_over(
         tidy_workers_cache(&dir, recorded).await;
         workers = workers.with_cache_root(dir);
     }
-    let bus: Arc<dyn EventBus> = Arc::new(BroadcastEventBus::new());
-    notify_over(bus.as_ref(), Arc::clone(&config), Arc::clone(&store)).await;
     // One lock for every write of the configuration the daemon makes: a
     // connection, a creation and the record of an opened repository's ID
     // (§6.1, decision 57).
@@ -1508,7 +1526,8 @@ impl PlanRuns for PlanRunner {
             // queued operation: its plan or repository is gone or changed, its
             // plan moved and the secret is refused, or the configuration can't be read. Left
             // queued, it would show as queued with nothing to run it until
-            // the next start (decision 73).
+            // the next start (decision 73). An end the log took is announced,
+            // as every end a start makes is (decision 91).
             Err(why) => {
                 let hyphenated = id.as_uuid().hyphenated();
                 log::warn!(
@@ -1516,13 +1535,20 @@ impl PlanRuns for PlanRunner {
                 );
                 if operation
                     .fail(FailureReason::DaemonStopped, SystemClock.now())
-                    .is_ok()
-                    && let Err(refused) = self.store.save(&operation, None).await
+                    .is_err()
                 {
-                    log::warn!(
+                    return;
+                }
+                match self.store.save(&operation, None).await {
+                    Ok(()) => {
+                        if let Some(news) = app::announce::end_of(&operation) {
+                            self.events.publish(news).await;
+                        }
+                    }
+                    Err(refused) => log::warn!(
                         "operation {hyphenated}: a write to the operation log failed ({}); it stays queued",
                         refused.code()
-                    );
+                    ),
                 }
             }
         }
@@ -4594,12 +4620,76 @@ mod tests {
 
         let said: Vec<_> = super::captured_log::lines()
             .into_iter()
-            .filter(|(_, line)| line.contains("can't be read, and stays queued"))
+            .filter(|(_, line)| line.contains("in the operation log can't be read"))
             .collect();
         assert!(
-            said.iter()
-                .any(|(level, line)| *level == log::Level::Warn && line.contains("store-corrupt")),
-            "the row is logged with the store's code: {said:?}"
+            said.iter().any(|(level, line)| *level == log::Level::Warn
+                && line.contains("a queued operation")
+                && line.contains("stays queued")
+                && line.contains("store-corrupt")),
+            "the row is logged as queued, with the store's code: {said:?}"
+        );
+        assert!(
+            said.iter().all(|(_, line)| !line.contains("running")),
+            "a queued row isn't logged as a running one: {said:?}"
+        );
+        assert!(
+            said.iter().all(|(_, line)| !line.contains(canary)),
+            "the row's own text never reaches the log: {said:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_running_row_that_cannot_be_read_is_logged_as_ended_by_its_code_alone() {
+        use sqlx::{ConnectOptions, Connection};
+        super::captured_log::capture();
+        let scratch = tempfile::tempdir().expect("a scratch dir");
+        let (config, data) = own_folders(scratch.path());
+        let database = data.join("ladderback.db");
+        let earlier = SqliteStore::open(&database).await.expect("the log opens");
+        earlier
+            .save(
+                &running_backup(OperationId::from_uuid(Uuid::from_u128(0x275))),
+                None,
+            )
+            .await
+            .expect("the running backup is saved");
+        earlier.close().await;
+        // An ID the row can't hold, which the store's own account of the row
+        // repeats: it is the row's, so nobody has checked it (I4).
+        let canary = "canary-7f3b-not-an-id";
+        let mut raw = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&database)
+            .connect()
+            .await
+            .expect("a raw connection to the log");
+        sqlx::query("UPDATE operations SET id = ?")
+            .bind(canary)
+            .execute(&mut raw)
+            .await
+            .expect("the row is changed");
+        raw.close().await.expect("the connection closes");
+
+        let daemon = daemon_at(Some(config), Some(data), None)
+            .await
+            .map_err(|refused| refused.message)
+            .expect("an unreadable running row doesn't refuse the start");
+        drop(daemon);
+
+        let said: Vec<_> = super::captured_log::lines()
+            .into_iter()
+            .filter(|(_, line)| line.contains("in the operation log can't be read"))
+            .collect();
+        assert!(
+            said.iter().any(|(level, line)| *level == log::Level::Warn
+                && line.contains("a running operation")
+                && line.contains("has ended as failed")
+                && line.contains("store-corrupt")),
+            "the row is logged as ended, with the store's code: {said:?}"
+        );
+        assert!(
+            said.iter().all(|(_, line)| !line.contains("queued")),
+            "a running row isn't logged as a queued one: {said:?}"
         );
         assert!(
             said.iter().all(|(_, line)| !line.contains(canary)),
@@ -5255,8 +5345,9 @@ mod tests {
     }
 
     /// A queued backup whose job can't be built at the restart ends as
-    /// failed, and the log says why (decision 73): left queued, it would
-    /// show as queued with nothing to run it until the next start. Here the
+    /// failed, the log says why (decision 73), and the end is announced as
+    /// every end a start makes is (#547): left queued, it would show as
+    /// queued with nothing to run it until the next start. Here the
     /// configuration becomes unreadable between the background task's read
     /// and the runner's own.
     #[tokio::test]
@@ -5264,6 +5355,7 @@ mod tests {
         super::captured_log::capture();
         let id = OperationId::from_uuid(Uuid::from_u128(0x2741));
         let (runner, queued, _scratch) = a_queued_backup_over_a_spoiled_configuration(id).await;
+        let mut page = runner.events.subscribe().await;
 
         PlanRuns::resume(&runner, queued).await;
 
@@ -5282,22 +5374,35 @@ mod tests {
                 && line.contains("(config-invalid)")),
             "the log says why the backup ended: {said:?}"
         );
+        let told = futures::FutureExt::now_or_never(page.next()).flatten();
+        assert_matches!(
+            &told,
+            Some(UiEvent::OperationFailed { operation, code: ErrorCode::DaemonStopped, .. })
+                if *operation == hyphenated,
+            "the end is announced"
+        );
+        assert!(
+            futures::FutureExt::now_or_never(page.next()).is_none(),
+            "the end is announced once"
+        );
     }
 
     /// The same when the background task's own read of the configuration
     /// fails: no job can be built, so every queued backup ends as failed,
-    /// and the log says why.
+    /// the log says why, and each end is announced (#547).
     #[tokio::test]
     async fn the_queue_ends_as_daemon_stopped_when_the_background_task_cannot_read_the_configuration()
      {
         super::captured_log::capture();
         let id = OperationId::from_uuid(Uuid::from_u128(0x2742));
         let (runner, queued, _scratch) = a_queued_backup_over_a_spoiled_configuration(id).await;
+        let mut page = runner.events.subscribe().await;
 
         super::resume_queued(
             vec![OperationRecord::of(&queued, None)],
             runner.config.as_ref(),
             Arc::clone(&runner.store),
+            Arc::clone(&runner.events),
             &runner,
         )
         .await;
@@ -5320,6 +5425,13 @@ mod tests {
                 && line.contains(&hyphenated)
                 && line.contains("ConfigUnreadable")),
             "the log names the backup that ended, and why: {said:?}"
+        );
+        let told = futures::FutureExt::now_or_never(page.next()).flatten();
+        assert_matches!(
+            &told,
+            Some(UiEvent::OperationFailed { operation, code: ErrorCode::DaemonStopped, .. })
+                if *operation == hyphenated,
+            "the end is announced"
         );
     }
 

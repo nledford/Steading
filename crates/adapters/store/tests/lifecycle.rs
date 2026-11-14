@@ -270,7 +270,7 @@ impl Write {
                 }
                 Write::FailUnfinished => {
                     let recovered = store.recover(&FailureReason::DaemonStopped).await?;
-                    assert_eq!(recovered.ended, 1);
+                    assert_eq!(recovered.ended.len(), 1);
                     Ok(())
                 }
             }
