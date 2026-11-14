@@ -2,11 +2,12 @@
 Feature: Install Ladderback with one command
   Until releases come with binaries (decision 54), a person installs
   Ladderback by building it from source. The install script does that in one
-  command, piped from the web into bash (README, "Installation"; decision
-  79): it checks the tools the build needs, installs the ones that need no
-  administrator rights after asking once, keeps Ladderback's source in a
-  folder of its own, checks out the newest release and installs it. It
-  never runs sudo, and running it again updates to the newest release.
+  command, piped from the web into bash (docs/guide/install.md, "The
+  install script"; decision 79): it checks the tools the build needs,
+  installs the ones that need no administrator rights after asking once,
+  keeps Ladderback's source in a folder of its own, checks out the newest
+  release and installs it. It never runs sudo, and running it again updates
+  to the newest release.
 
   In the examples the home folder is a scratch folder, Ladderback's source
   comes from a local copy with releases of its own, the script is read from
