@@ -7,7 +7,7 @@
 A self-hosted backup manager for [rustic](https://rustic.cli.rs): plans, schedules and one dashboard for every machine.
 
 > [!WARNING]
-> **Ladderback 0.2.0 runs scheduled backups, but it can't restore yet.** To get files back, use the `rustic` CLI, which restores from any repository Ladderback backs up to; try a restore with it before you rely on those backups. The snapshot browser and restores in Ladderback come in M3. Until the hub (M4a), each machine runs its own Ladderback with its own web UI. The [roadmap](#roadmap) has the order.
+> **Ladderback 0.3.0 runs scheduled backups, but it can't restore yet.** To get files back, use the `rustic` CLI, which restores from any repository Ladderback backs up to; try a restore with it before you rely on those backups. The snapshot browser and restores in Ladderback come in M3. Until the hub (M4a), each machine runs its own Ladderback with its own web UI. The [roadmap](#roadmap) has the order.
 
 ## What it will do
 
@@ -178,7 +178,7 @@ The copies of earlier versions of `config.toml` in the `history` folder beside i
 
 ## Roadmap
 
-The skeleton (M0), the backup engine (M1a), the single-machine MVP (M1b, released as [0.1.0](https://github.com/nledford/Ladderback/releases/tag/v0.1.0)) and schedules and errors (M2, released as [0.2.0](https://github.com/nledford/Ladderback/releases/tag/v0.2.0)) are in place: backups run on their schedules, with no restore in Ladderback yet. Each milestone is done when its acceptance scenarios pass, including keyboard-only and screen-reader checks for the UI. M2 is the first release worth using on your own machines; M3 adds browsing and restoring snapshots.
+The skeleton (M0), the backup engine (M1a), the single-machine MVP (M1b, released as [0.1.0](https://github.com/nledford/Ladderback/releases/tag/v0.1.0)) and schedules and errors (M2, released as [0.2.0](https://github.com/nledford/Ladderback/releases/tag/v0.2.0), with fixes from running it on real machines in [0.3.0](https://github.com/nledford/Ladderback/releases/tag/v0.3.0)) are in place: backups run on their schedules, with no restore in Ladderback yet. Each milestone is done when its acceptance scenarios pass, including keyboard-only and screen-reader checks for the UI. M2 is the first release worth using on your own machines; M3 adds browsing and restoring snapshots.
 
 - [x] **M0: Skeleton.** Workspace, CI, test tooling (acceptance scenarios, mutation testing, browser tests with accessibility checks), and an embedded web UI shell.
 - [x] **M1a: Engine.** Backups through `rustic_core` in an isolated worker process, with live progress, warnings, cancellation and deadlines.
