@@ -7,14 +7,15 @@
 # few hundred megabytes, and every other Linux job restored it and rebuilt
 # nearly every crate. So on Linux only `Check (ubuntu-latest)` saves under that
 # key: it builds the most, and `Release-build tests`, the host part of `UI
-# journeys` and red-first.yml start from its build. `UI journeys` and
-# `Release-build tests` empty their target dir after their last step on a
-# push, and mbx skips the save of a job with no build to keep. `Wasm tests`
-# builds wasm32 tests, which Check doesn't, so it keeps a cache of its own
-# (`cache-generation`), a few hundred megabytes. A cache per job doesn't fit:
-# the repository's Actions cache holds 10 GB, and the macOS build alone takes
-# 4.7. If Check fails on a push, that commit saves no Linux build, and pull
-# requests restore the one before.
+# journeys` and red-first.yml start from its build. `UI journeys`,
+# `Release-build tests` and both `Service managers` jobs empty their target
+# dir after their last step on a push (on macOS too, leaving that OS's save
+# to `Check (macos-latest)`), and mbx skips the save of a job with no build
+# to keep. `Wasm tests` builds wasm32 tests, which Check doesn't, so it keeps
+# a cache of its own (`cache-generation`), a few hundred megabytes. A cache
+# per job doesn't fit: the repository's Actions cache holds 10 GB, and the
+# macOS build alone takes 4.7. If Check fails on a push, that commit saves no
+# Linux build, and pull requests restore the one before.
 name: CI
 
 on:
@@ -292,6 +293,74 @@ jobs:
       - run: just lint-workflows
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # `install-service` against the real service managers (#544): launchd on
+  # macOS, a systemd user manager on Linux. The stand-ins the tests use take
+  # the manager's commands at their word, so #542's race showed only on a real
+  # Mac. scripts/service-contract.sh runs the adapter's contract against the
+  # real manager, then the real binary: install, install again over the
+  # running service, remove. Both fail, never skip, when no manager answers.
+  # Not a required check: the maintainer may add it to the ruleset once it has
+  # a clean record (development.md §13.8).
+  service:
+    name: Service managers (${{ matrix.name }})
+    needs: changes
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.changes.outputs.docs-only != 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: launchd
+            os: macos-26
+          - name: systemd
+            os: ubuntu-26.04
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      LADDERBACK_TEST_REAL_SERVICE_MANAGER: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Installs the toolchain rust-toolchain.toml names, so mbx keys on it.
+      - run: rustup toolchain install
+      - uses: jdx/mr-boxington-action@88acf2bb50552c7c508cbac13e5f8c576b95b1de # v1.7.3
+        continue-on-error: true
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-nextest
+      # The runner starts jobs outside any login session, so its user has no
+      # systemd user manager. Lingering starts one (`user@<uid>.service`), as
+      # at boot for a lingering user; the step waits until it answers, and
+      # fails if it doesn't within 30 s. macOS needs nothing: the runner user
+      # is logged in, with a GUI session launchd serves.
+      - if: runner.os == 'Linux'
+        run: |
+          sudo loginctl enable-linger "$(id -un)"
+          runtime="/run/user/$(id -u)"
+          for _ in $(seq 1 30); do
+            if XDG_RUNTIME_DIR="$runtime" systemctl --user show-environment > /dev/null 2>&1; then
+              {
+                echo "XDG_RUNTIME_DIR=$runtime"
+                echo "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus"
+              } >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "no systemd user manager answers for $(id -un) after 30 s of lingering" >&2
+          exit 1
+      - run: scripts/service-contract.sh contract
+      # Runs after a failed contract too, so one run shows both results. The
+      # runner is thrown away after the job, so the step may install the real
+      # service, which it does only when told so.
+      - if: ${{ !cancelled() }}
+        run: scripts/service-contract.sh install
+        env:
+          LADDERBACK_TEST_INSTALL_SERVICE: "1"
+      # Leaves the build cache to the `Check` jobs (top of this file).
+      - if: github.event_name == 'push'
+        run: rm -rf target
 
   # The tests of the build a release is: `--no-default-features`, which leaves
   # out the development pseudolocales (technical design §8.4). `just test`
