@@ -11,7 +11,7 @@ This is a whole `config.toml` with one plan, which backs up a home folder every 
 schema = 1
 
 # The repository, as the Repositories page wrote it, with its password moved
-# out of this file (see secrets.md). Yours may have more lines, such as its
+# out of this file (see the secrets guide). Yours may have more lines, such as its
 # repository-id.
 [repositories.nas]
 repository = "rest:https://nas.example:8000/demo-laptop"

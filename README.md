@@ -13,18 +13,20 @@ A self-hosted backup manager for [rustic](https://rustic.cli.rs): plans, schedul
 
 Without a manager, each machine runs rustic from its own cron job or timer. Failures surface only if someone reads the logs, a laptop that was asleep at 02:00 silently skips its backup, and retention on a shared repository needs hand-coordination between hosts. Ladderback turns rustic into a managed service on each machine, with one place to see them all.
 
-**In 0.3.0**, each machine runs its own Ladderback, with the web UI built in:
+**Today**, each machine runs its own Ladderback, with the web UI built in:
 
 - **Plans and schedules.** What to back up, from which machine, into which repository, how often, and how long to keep it. Missed runs on sleeping laptops catch up at the next wake, and notifications go to webhooks, ntfy and healthchecks.io.
-- **Safe maintenance on shared repositories.** Backups never wait for a lock, and exactly one place runs forget, prune and check for each repository.
+- **Safe maintenance on shared repositories.** Backups never wait for a lock. One machine you choose maintains each repository, and Ladderback warns when it sees snapshots from other hosts in it.
 - **No lock-in.** Import existing rustic profiles and export any plan back to one, so the `rustic` CLI always stays an option.
 - **One self-contained program.** It runs headless on servers and as a user service on desktops and laptops. It is accessible (WCAG 2.2 AA) and localization-ready.
 
 **Later** (see the [roadmap](#roadmap)):
 
 - **Careful restores (M3).** Restore into a new folder by default; in-place restore only from the machine's own UI, after a dry-run summary.
-- **Scriptable by AI agents (M3).** `ladderback mcp` will be an MCP server over stdio. It will drive a running instance, or a headless session of its own, through read, run and preview tools, and it won't be able to restore or delete. It will be able to propose a backup setup, which changes nothing until a person confirms it in the web UI. The command doesn't exist yet.
-- **One dashboard for every machine (M4).** Status, live progress, history, warnings and errors for every connected computer. Notifications to Gotify and email come later too.
+- **Scriptable by AI agents (M3; proposals may come after).** `ladderback mcp` will be an MCP server over stdio. It will drive a running instance, or a headless session of its own, through read, run and preview tools, and it won't be able to restore or delete. It will be able to propose a backup setup, which changes nothing until a person confirms it in the web UI. The command doesn't exist yet.
+- **One dashboard for every machine (M4a).** Status, live progress, history, warnings and errors for every connected computer.
+- **One owner for each repository (M4b).** Exactly one place runs forget, prune and check for each repository, whichever machines back up to it.
+- **Later, unscheduled.** Notifications to Gotify and email.
 
 Ladderback supports **Linux and macOS**. Windows is out of scope. It runs inside WSL2 as a Linux install, for files inside WSL, but it isn't a way to back up Windows: WSL stops when idle, so scheduled backups don't run unless something keeps it running, and files under `/mnt/c` are read without shadow copies or Windows metadata (ACLs, attributes, alternate data streams), so open files may fail and a restore to Windows loses that metadata.
 
@@ -34,8 +36,8 @@ Ladderback borrows Backrest's user-facing model: repositories, plans, schedules,
 
 **Ladderback may suit you better if you:**
 
-- back up **several machines into one shared repository**. In Backrest, each plan runs `restic forget` after its backup, which takes an exclusive lock and blocks other hosts' backups ([backrest#244](https://github.com/garethgeorge/backrest/issues/244)). In Ladderback, backups never wait for a lock, and one owner per repository runs maintenance;
-- don't want repository **passwords and backend keys copied to other machines**. Backrest's multi-host sync pushes shared repositories to clients, credentials included. Ladderback's hub keeps its own secrets, and agents never send theirs;
+- back up **several machines into one shared repository**. In Backrest, each plan runs `restic forget` after its backup, which takes an exclusive lock and blocks other hosts' backups ([backrest#244](https://github.com/garethgeorge/backrest/issues/244)). In Ladderback, backups never wait for a lock, and with the hub (M4b) one owner per repository runs maintenance;
+- don't want repository **passwords and backend keys copied to other machines**. Backrest's multi-host sync pushes shared repositories to clients, credentials included. with Ladderback's hub (M4a), the hub keeps its own secrets, and agents never send theirs;
 - back up **laptops**. Missed runs catch up by default, and the scheduler notices sleep and wake;
 - want **secrets out of the config file**: a password command, the system keyring, a file or an environment variable. A missing secret fails the job instead of silently becoming an empty string;
 - want **time-based retention** (`keep-within-*`), not just counts;
@@ -67,7 +69,7 @@ less install.sh
 bash install.sh
 ```
 
-The script checks the tools the build needs and installs those that need no administrator rights, after asking you once. It never runs `sudo`. It keeps the source in `~/.local/share/ladderback/source` and installs the newest release into `~/.cargo/bin`. The [install guide](docs/guide/install.md) has the details, the steps to build by hand, how to update, how to run Ladderback as a service and what macOS asks for.
+The script asks before it installs anything. The [install guide](docs/guide/install.md) says what it checks and installs, and has the steps to build by hand, how to update, how to run Ladderback as a service and what macOS asks for.
 
 ## Quick start
 
@@ -77,8 +79,8 @@ ladderback serve
 
 Open the address it prints, `http://127.0.0.1:9898`, then:
 
-1. **Connect a repository** on the Repositories page: fill in its location and password, test it, give it a name such as `nas`, and connect it.
-2. **Add a plan** to `config.toml` in Ladderback's config folder: what to back up, when, and how long to keep it.
+1. **Connect a repository** on the Repositories page.
+2. **Add a plan** to `config.toml` in Ladderback's config folder.
 3. **Watch it run.** The start page lists the plan with its next run.
 
 [A first plan](docs/guide/first-plan.md) walks through it with a whole `config.toml`. [Secrets](docs/guide/secrets.md) moves the repository's password out of that file, and [sign-in and remote access](docs/guide/remote-access.md) says how to set a password and reach Ladderback from another machine.
