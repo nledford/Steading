@@ -136,6 +136,9 @@ fn spawn_daemon(
             return (child, Outcome::Listening(addr), log_path);
         }
         if let Some(status) = child.try_wait().expect("the daemon's status") {
+            // Read again: it may have written its last words and exited
+            // between the read above and this wait.
+            let text = std::fs::read_to_string(&log_path).unwrap_or(text);
             return (child, Outcome::Exited(status, text), log_path);
         }
         assert!(
