@@ -552,9 +552,15 @@ async fn state_over(
     }
     // By its code alone: the store's account of a row repeats what the row
     // holds, which nobody has checked for a value (I4).
-    for error in &recovered.unreadable {
+    for error in &recovered.unreadable_ended {
         log::warn!(
-            "an operation in the operation log can't be read: a queued one stays queued, and a running one has ended without being named ({})",
+            "a running operation in the operation log can't be read: it has ended as failed without being named ({})",
+            error.code()
+        );
+    }
+    for error in &recovered.unreadable_queued {
+        log::warn!(
+            "a queued operation in the operation log can't be read, and stays queued ({})",
             error.code()
         );
     }
@@ -4617,9 +4623,15 @@ mod tests {
             .filter(|(_, line)| line.contains("in the operation log can't be read"))
             .collect();
         assert!(
-            said.iter()
-                .any(|(level, line)| *level == log::Level::Warn && line.contains("store-corrupt")),
-            "the row is logged with the store's code: {said:?}"
+            said.iter().any(|(level, line)| *level == log::Level::Warn
+                && line.contains("a queued operation")
+                && line.contains("stays queued")
+                && line.contains("store-corrupt")),
+            "the row is logged as queued, with the store's code: {said:?}"
+        );
+        assert!(
+            said.iter().all(|(_, line)| !line.contains("running")),
+            "a queued row isn't logged as a running one: {said:?}"
         );
         assert!(
             said.iter().all(|(_, line)| !line.contains(canary)),

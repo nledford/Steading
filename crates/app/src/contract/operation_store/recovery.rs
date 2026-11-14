@@ -239,7 +239,8 @@ async fn a_queued_operation_stays_queued_and_is_handed_back(store: &dyn Operatio
                 OperationRecord::of(&older, None),
                 OperationRecord::of(&newer, None)
             ],
-            unreadable: Vec::new(),
+            unreadable_ended: Vec::new(),
+            unreadable_queued: Vec::new(),
         }),
         "a queued operation isn't ended: it comes back as it was queued, oldest first"
     );

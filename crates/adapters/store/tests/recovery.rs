@@ -63,7 +63,8 @@ async fn an_operation_a_closed_store_left_running_is_ended_and_a_queued_one_hand
         vec![OperationRecord::of(&waiting, None)],
         "the queued one is handed back as it was queued"
     );
-    assert_eq!(recovered.unreadable, Vec::new());
+    assert_eq!(recovered.unreadable_ended, Vec::new());
+    assert_eq!(recovered.unreadable_queued, Vec::new());
     assert_eq!(second.get(running.id()).await, Ok(Some(ended(&running))));
     assert_eq!(
         second.get(waiting.id()).await,
@@ -116,7 +117,8 @@ async fn queued_operations_come_back_oldest_first_and_an_unreadable_one_is_repor
         ],
         "oldest first, which is ID order"
     );
-    assert_eq!(recovered.unreadable.len(), 1, "{recovered:?}");
+    assert_eq!(recovered.unreadable_queued.len(), 1, "{recovered:?}");
+    assert_eq!(recovered.unreadable_ended, Vec::new(), "{recovered:?}");
     assert_eq!(
         stored_row(&mut raw, 0x21).await,
         before,
@@ -152,7 +154,8 @@ async fn ended_operations_come_back_oldest_first_and_an_unreadable_one_is_ended_
         vec![queued_backup(0x30).id(), queued_backup(0x3c).id()],
         "oldest first, which is ID order"
     );
-    assert_eq!(recovered.unreadable.len(), 1, "{recovered:?}");
+    assert_eq!(recovered.unreadable_ended.len(), 1, "{recovered:?}");
+    assert_eq!(recovered.unreadable_queued, Vec::new(), "{recovered:?}");
     let status: String = sqlx::query_scalar("SELECT status FROM operations WHERE id = ?")
         .bind(&unreadable)
         .fetch_one(&mut raw)

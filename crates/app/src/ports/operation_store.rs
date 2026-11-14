@@ -133,11 +133,13 @@ pub struct Recovered {
     pub ended: Vec<OperationId>,
     /// The operations the log shows as queued, oldest first.
     pub queued: Vec<OperationRecord>,
-    /// Why each row the log holds but couldn't read was left out of
-    /// `ended` or `queued`: a queued row this build can't read stays queued
-    /// as it is, and a running one it ended can't be named, rather than
-    /// refuse the start (§9 reads strictly).
-    pub unreadable: Vec<StoreError>,
+    /// Why each running row the log holds but couldn't read was left out of
+    /// `ended`: it is ended all the same, but can't be named (§9 reads
+    /// strictly), rather than refuse the start.
+    pub unreadable_ended: Vec<StoreError>,
+    /// Why each queued row the log holds but couldn't read was left out of
+    /// `queued`: a queued row this build can't read stays queued as it is.
+    pub unreadable_queued: Vec<StoreError>,
 }
 
 /// What [`OperationStore::try_start`] decided.

@@ -534,7 +534,7 @@ impl OperationStore for SqliteStore {
         for row in &ended {
             match row::operation_id(row) {
                 Ok(id) => recovered.ended.push(id),
-                Err(error) => recovered.unreadable.push(error),
+                Err(error) => recovered.unreadable_ended.push(error),
             }
         }
         // RETURNING follows no order; IDs sort in time order (UUIDv7).
@@ -542,7 +542,7 @@ impl OperationStore for SqliteStore {
         for row in &rows {
             match row::record(row) {
                 Ok(record) => recovered.queued.push(record),
-                Err(error) => recovered.unreadable.push(error),
+                Err(error) => recovered.unreadable_queued.push(error),
             }
         }
         Ok(recovered)
