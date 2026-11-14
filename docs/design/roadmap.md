@@ -13,6 +13,8 @@ Rough effort assumes one experienced developer working part-time (~10–15 h/wee
 | **M5** | Hub: control and maintenance | Repo ownership registry with leases; hub-managed forget/prune/check by plan tag, serialized per repo; adoption from the hub; owner prune guard; hub downloads; remote run/cancel and opt-in new-folder restore (plans view-only from the hub); MCP connect mode against a hub, with an `agent` argument (§4.6) | 3–4 wks |
 | **M6** | Polish | Conditions (AC power / metered), charts with text summaries and table views (§4.5), Docker image, release packaging, `db rebuild`, docs | 2–3 wks |
 
+From M1b on, each milestone ends with a release; [operations.md §12.1](operations.md#121-versioning-and-releases) says which version each one is.
+
 **Old names.** Until 2026-11-14 the milestones after M3 had other names: M4a is now M4, M4b is now M5, and M5 is now M6. The hub milestone had been split in two, and the lettered names were hard to follow. Decisions recorded before that date, and the issues and pull requests of that time, keep the old names.
 
 M2 ends with its release, `0.2.0`: after the tag, it runs on real machines before M3 starts, and what that run turns up is fixed or filed first. On macOS that run uses an ad-hoc-signed build from source, with Full Disk Access granted by hand (decision 71). That run found that a repository has one location, so a laptop that reaches its server by a LAN address at home and a public one away takes the slow route at home (#424): decision 80's one pull request (ordered locations, a bounded probe, the same-repository check, and rules by network link and by Wi-Fi name) is that fix and lands before M3 starts; M6's conditions reuse its platform readers.
