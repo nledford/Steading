@@ -9,6 +9,17 @@ All notable changes to Ladderback are listed here. The format follows
 
 ## [0.3.0](https://github.com/nledford/Ladderback/compare/v0.2.0...v0.3.0) - 2026-11-14
 
+Fixes and polish from running 0.2.0 every day on real machines: Linux servers, a Mac and a Raspberry Pi. Ladderback installs with one command; a repository can be reached at several locations, chosen by the network you are on; the Operations page says which step a run is in and why one failed; refusals name the password or credential that was refused; and the header names the running build. There is still no restore: use the `rustic` CLI, and try a restore before relying on the backups. Restore comes in 0.4.
+
+### Upgrading
+
+- **From a checkout of v0.2.0:** run `git checkout -- crates/web/tw-out.css` before `git pull`. Building 0.2.0 rewrote that file, which is no longer tracked, and git won't remove a changed file.
+- **On macOS,** a locally built binary is signed ad hoc, so each install is a new program to macOS: it asks again for the keychain, and for Photos or Full Disk Access if Ladderback had them. Choose Always Allow and Allow, or the next backup reads less than it should (it says so with a warning).
+
+### Breaking
+
+- A repository password the repository refuses now answers `503` with the code `password-not-accepted`, where it answered `422` with `operation-failed`. A client that checks for the old code should check for the new one too ([#520](https://github.com/nledford/Ladderback/pull/520))
+
 ### Added
 
 - Install Ladderback with one command ([#419](https://github.com/nledford/Ladderback/pull/419))
