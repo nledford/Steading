@@ -104,8 +104,9 @@ pub trait OperationStore: Send + Sync {
     async fn ever_succeeded(&self, plan: &PlanId) -> Result<bool, StoreError>;
 
     /// Ends every operation the log shows as running as
-    /// [`Failed`](OperationStatus::Failed) with `reason`, and returns how many
-    /// it ended and the operations the log shows as queued, oldest first.
+    /// [`Failed`](OperationStatus::Failed) with `reason`, and returns the IDs
+    /// of those it ended and the operations the log shows as queued, each
+    /// oldest first, so that the caller can announce each one it ended.
     /// Startup recovery calls it before anything runs, when whatever still
     /// looks running was left by a process that stopped: a crash, a kill or a
     /// power cut. The queued ones are the persistent queue (§5): they never
@@ -128,13 +129,14 @@ pub trait OperationStore: Send + Sync {
 /// What [`OperationStore::recover`] did and found.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Recovered {
-    /// How many running operations it ended.
-    pub ended: u64,
+    /// The operations it ended, by ID, oldest first.
+    pub ended: Vec<OperationId>,
     /// The operations the log shows as queued, oldest first.
     pub queued: Vec<OperationRecord>,
-    /// Why each queued operation the log holds but couldn't read was left
-    /// out of `queued`: a row this build can't read stays queued as it is,
-    /// rather than refuse the start (§9 reads strictly).
+    /// Why each row the log holds but couldn't read was left out of
+    /// `ended` or `queued`: a queued row this build can't read stays queued
+    /// as it is, and a running one it ended can't be named, rather than
+    /// refuse the start (§9 reads strictly).
     pub unreadable: Vec<StoreError>,
 }
 

@@ -132,7 +132,7 @@ impl OperationStore for InMemoryOperationStore {
                     detail.record.status = OperationStatus::Failed {
                         reason: reason.clone(),
                     };
-                    recovered.ended += 1;
+                    recovered.ended.push(detail.record.id);
                 }
                 OperationStatus::Queued => recovered.queued.push(detail.record.clone()),
                 _ => {}

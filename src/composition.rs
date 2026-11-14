@@ -530,7 +530,7 @@ async fn state_over(
         .recover(SystemClock.now())
         .await
         .map_err(|error| recovery_refused(&log.database, &error))?;
-    let ended = recovered.ended;
+    let ended = recovered.ended.len();
     if ended > 0 {
         log::warn!(
             "ended {ended} operation(s) the operation log still showed as running: the daemon that ran them stopped before they finished"
@@ -540,7 +540,7 @@ async fn state_over(
     // holds, which nobody has checked for a value (I4).
     for error in &recovered.unreadable {
         log::warn!(
-            "a queued operation in the operation log can't be read, and stays queued ({})",
+            "an operation in the operation log can't be read: a queued one stays queued, and a running one has ended without being named ({})",
             error.code()
         );
     }
@@ -4594,7 +4594,7 @@ mod tests {
 
         let said: Vec<_> = super::captured_log::lines()
             .into_iter()
-            .filter(|(_, line)| line.contains("can't be read, and stays queued"))
+            .filter(|(_, line)| line.contains("in the operation log can't be read"))
             .collect();
         assert!(
             said.iter()

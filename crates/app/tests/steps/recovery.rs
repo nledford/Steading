@@ -50,7 +50,7 @@ pub struct RecoveryWorld {
     made: u128,
     seeded: Vec<Seeded>,
     /// What each start of the daemon reported, oldest first.
-    starts: Vec<Result<u64, StoreError>>,
+    starts: Vec<Result<usize, StoreError>>,
     /// The plans the configuration no longer has.
     removed: Vec<String>,
     /// The plans the configuration now has on another repository, and the
@@ -126,7 +126,7 @@ impl RecoveryWorld {
             })
     }
 
-    fn last_start(&self) -> &Result<u64, StoreError> {
+    fn last_start(&self) -> &Result<usize, StoreError> {
         self.starts
             .last()
             .expect("the daemon started again in the scenario")
@@ -396,7 +396,7 @@ async fn daemon_starts_again(agent: &mut Agent) {
     agent.recovery.starts.push(
         recovered
             .as_ref()
-            .map(|recovered| recovered.ended)
+            .map(|recovered| recovered.ended.len())
             .map_err(Clone::clone),
     );
     let runs = Arc::new(RecordingRuns::new(agent.clock.clone()));
@@ -436,7 +436,7 @@ async fn daemon_starts_on_unwritable_log(agent: &mut Agent) {
     agent
         .recovery
         .starts
-        .push(recovered.map(|recovered| recovered.ended));
+        .push(recovered.map(|recovered| recovered.ended.len()));
     // A start whose recovery failed refuses to serve: nothing runs again.
     agent.recovery.runs = Some(Arc::new(RecordingRuns::new(agent.clock.clone())));
 }
@@ -638,12 +638,12 @@ async fn repository_is_free(agent: &mut Agent, repository: String) {
 }
 
 #[then(expr = "the daemon's start ended {int} operation(s)")]
-fn start_ended(agent: &mut Agent, count: u64) {
+fn start_ended(agent: &mut Agent, count: usize) {
     assert_eq!(agent.recovery.last_start(), &Ok(count));
 }
 
 #[then(expr = "the daemon's first start ended {int} operation(s)")]
-fn first_start_ended(agent: &mut Agent, count: u64) {
+fn first_start_ended(agent: &mut Agent, count: usize) {
     let first = agent
         .recovery
         .starts

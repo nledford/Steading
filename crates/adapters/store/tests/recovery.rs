@@ -12,11 +12,11 @@ use domain::execution::{FailureReason, OperationKind, OperationStatus};
 use support::*;
 
 /// How many running operations recovery ended, or why it couldn't.
-async fn ended(store: &store::SqliteStore) -> Result<u64, StoreError> {
+async fn ended(store: &store::SqliteStore) -> Result<usize, StoreError> {
     store
         .recover(&FailureReason::DaemonStopped)
         .await
-        .map(|recovered| recovered.ended)
+        .map(|recovered| recovered.ended.len())
 }
 
 fn daemon_stopped() -> OperationStatus {
@@ -53,7 +53,11 @@ async fn an_operation_a_closed_store_left_running_is_ended_and_a_queued_one_hand
     )
     .await
     .expect("recovery works");
-    assert_eq!(recovered.ended, 1, "the running operation is ended");
+    assert_eq!(
+        recovered.ended,
+        vec![running.id()],
+        "the running operation is ended"
+    );
     assert_eq!(
         recovered.queued,
         vec![OperationRecord::of(&waiting, None)],
@@ -78,7 +82,7 @@ async fn an_operation_a_closed_store_left_running_is_ended_and_a_queued_one_hand
         .recover(&FailureReason::DaemonStopped)
         .await
         .expect("recovery works");
-    assert_eq!(again.ended, 0, "nothing is left to end");
+    assert_eq!(again.ended, Vec::new(), "nothing is left to end");
     assert_eq!(again.queued, vec![OperationRecord::of(&waiting, None)]);
     third.close().await;
 }
@@ -118,6 +122,43 @@ async fn queued_operations_come_back_oldest_first_and_an_unreadable_one_is_repor
         before,
         "the unreadable row is left as it was"
     );
+    store.close().await;
+}
+
+#[tokio::test]
+async fn ended_operations_come_back_oldest_first_and_an_unreadable_one_is_ended_and_reported() {
+    let scratch = Scratch::new();
+    let store = scratch.open().await;
+    let mut raw = scratch.raw().await;
+    // Stored newest first, so the table's order isn't the answer's.
+    save(&store, &started(queued_backup(0x3c)), None).await;
+    save(&store, &started(queued_backup(0x30)), None).await;
+    save(&store, &started(queued_backup(0x3b)), None).await;
+    // An ID this build doesn't read: not in lowercase hyphenated form.
+    let unreadable = id_text(0x3b).to_uppercase();
+    sqlx::query("UPDATE operations SET id = ? WHERE id = ?")
+        .bind(&unreadable)
+        .bind(id_text(0x3b))
+        .execute(&mut raw)
+        .await
+        .expect("the row is changed");
+
+    let recovered = store
+        .recover(&FailureReason::DaemonStopped)
+        .await
+        .expect("an unreadable running row doesn't refuse the start");
+    assert_eq!(
+        recovered.ended,
+        vec![queued_backup(0x30).id(), queued_backup(0x3c).id()],
+        "oldest first, which is ID order"
+    );
+    assert_eq!(recovered.unreadable.len(), 1, "{recovered:?}");
+    let status: String = sqlx::query_scalar("SELECT status FROM operations WHERE id = ?")
+        .bind(&unreadable)
+        .fetch_one(&mut raw)
+        .await
+        .expect("the row is read");
+    assert_eq!(status, "failed", "the unreadable row is ended all the same");
     store.close().await;
 }
 
