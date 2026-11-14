@@ -7,6 +7,7 @@ use domain::Timestamp;
 use domain::execution::{FailureReason, OperationKind, Target};
 use domain::planning::AgentConfig;
 
+use crate::announce::{self, announce_end};
 use crate::ports::{EventBus, OperationRecord, OperationStore, Recovered, StoreError};
 use crate::schedule::{PlanRuns, ScheduleReport};
 
@@ -68,8 +69,13 @@ impl RecoverOperations {
     /// the daemon refuses to start rather than serve with a repository held
     /// for good.
     pub async fn recover(&self, now: Timestamp) -> Result<Recovered, StoreError> {
-        let _ = (now, &self.events);
-        self.store.recover(&FailureReason::DaemonStopped).await
+        let recovered = self.store.recover(&FailureReason::DaemonStopped).await?;
+        if let Some(events) = &self.events {
+            for &id in &recovered.ended {
+                events.publish(announce::daemon_stopped(id, now)).await;
+            }
+        }
+        Ok(recovered)
     }
 
     /// Runs again, oldest first, each queued backup of a plan `config` still
@@ -77,9 +83,10 @@ impl RecoverOperations {
     /// trigger (decision 73). `config` is `None` when the configuration
     /// can't be read. A queued operation the queue can't run again ends as
     /// failed with [`FailureReason::DaemonStopped`] at `now`, as decision 40
-    /// ended every queued one, and `runs` is told why ([`QueuedEnd`]). A
-    /// write the log refuses is reported through `runs` and leaves that
-    /// operation queued.
+    /// ended every queued one, `runs` is told why ([`QueuedEnd`]), and the
+    /// end is announced once the log has it. A write the log refuses is
+    /// reported through `runs`, announces nothing and leaves that operation
+    /// queued.
     pub async fn resume(
         &self,
         queued: Vec<OperationRecord>,
@@ -112,11 +119,14 @@ impl RecoverOperations {
                 kind: record.kind,
                 why,
             });
-            // A queued operation never ends otherwise: fail is allowed.
-            if operation.fail(FailureReason::DaemonStopped, now).is_ok()
-                && let Err(error) = self.store.save(&operation, None).await
-            {
-                runs.report(ScheduleReport::Store(error));
+            // A queued operation never ends otherwise: fail is allowed. Its
+            // end is announced once the log has it, and only then: a start
+            // whose write is refused leaves it queued for the next start.
+            if operation.fail(FailureReason::DaemonStopped, now).is_ok() {
+                match self.store.save(&operation, None).await {
+                    Ok(()) => announce_end(self.events.as_deref(), &operation).await,
+                    Err(error) => runs.report(ScheduleReport::Store(error)),
+                }
             }
         }
     }

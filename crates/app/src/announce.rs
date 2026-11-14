@@ -8,9 +8,9 @@
 //! has them.
 
 use api::{ErrorCode, ErrorDto, MsgArg, UiEvent};
-use domain::RepositoryId;
 use domain::execution::refusal::SettingRefusal;
 use domain::execution::{FailureReason, Operation, OperationStatus};
+use domain::{OperationId, RepositoryId, Timestamp};
 
 use crate::ports::EventBus;
 
@@ -87,6 +87,20 @@ pub(crate) async fn announce_end(events: Option<&dyn EventBus>, operation: &Oper
         && let Some(news) = end_of(operation)
     {
         events.publish(news).await;
+    }
+}
+
+/// The news that startup recovery ended `operation`, which the log showed
+/// as running, as failed with [`FailureReason::DaemonStopped`]: its time is
+/// `at`, when the start ended it, since when it stopped is unknown and the
+/// log keeps no finish time for it (decision 40).
+pub fn daemon_stopped(operation: OperationId, at: Timestamp) -> UiEvent {
+    let failure = failure(&FailureReason::DaemonStopped);
+    UiEvent::OperationFailed {
+        operation: operation.as_uuid().hyphenated().to_string(),
+        code: failure.code,
+        args: failure.positional(),
+        finished_at: at.to_string(),
     }
 }
 

@@ -318,7 +318,14 @@ impl Background {
         let queue = Arc::clone(&self.runner.queue);
         let events = Arc::clone(&self.runner.events);
         let runs: Arc<dyn PlanRuns> = self.runner;
-        resume_queued(self.queued, self.config.as_ref(), self.store, runs.as_ref()).await;
+        resume_queued(
+            self.queued,
+            self.config.as_ref(),
+            self.store,
+            Arc::clone(&events),
+            runs.as_ref(),
+        )
+        .await;
         Scheduler {
             clock: Arc::new(SystemClock),
             random,
@@ -342,11 +349,12 @@ impl Background {
 /// configuration read once now. A configuration that can't be read builds
 /// no job, so each ends as failed with `daemon-stopped`, and the log says
 /// why (decision 73): left queued, it would show as queued with nothing to
-/// run it until the next start.
+/// run it until the next start. Each that ends is announced on `events`.
 async fn resume_queued(
     queued: Vec<OperationRecord>,
     config: &dyn ConfigStore,
     store: Arc<dyn OperationStore>,
+    events: Arc<dyn EventBus>,
     runs: &dyn PlanRuns,
 ) {
     let config = match config.load().await {
@@ -359,6 +367,7 @@ async fn resume_queued(
         }
     };
     RecoverOperations::new(store)
+        .with_events(events)
         .resume(queued, config.as_ref(), runs, SystemClock.now())
         .await;
 }
@@ -521,12 +530,17 @@ async fn state_over(
 ) -> Result<(AppState, Background), Refused> {
     let store: Arc<dyn OperationStore> = Arc::<SqliteStore>::clone(&log.store);
     let schedules: Arc<dyn ScheduleStore> = Arc::<SqliteStore>::clone(&log.store);
+    // The bus and the notification rules come first, so that recovery can
+    // announce each operation it ends (decision NN).
+    let bus: Arc<dyn EventBus> = Arc::new(BroadcastEventBus::new());
+    notify_over(bus.as_ref(), Arc::clone(&config), Arc::clone(&store)).await;
     // Nothing has run yet, so an operation the log still shows as running was
     // left by a process that stopped. It ends as failed now, which also lets
     // go of the repository a running maintenance operation held (I7). A log
     // that cannot be changed is a refusal: serving over it would keep that
     // repository held for good. Queued operations stay queued (decision 73).
     let recovered = RecoverOperations::new(Arc::clone(&store))
+        .with_events(Arc::clone(&bus))
         .recover(SystemClock.now())
         .await
         .map_err(|error| recovery_refused(&log.database, &error))?;
@@ -556,8 +570,6 @@ async fn state_over(
         tidy_workers_cache(&dir, recorded).await;
         workers = workers.with_cache_root(dir);
     }
-    let bus: Arc<dyn EventBus> = Arc::new(BroadcastEventBus::new());
-    notify_over(bus.as_ref(), Arc::clone(&config), Arc::clone(&store)).await;
     // One lock for every write of the configuration the daemon makes: a
     // connection, a creation and the record of an opened repository's ID
     // (§6.1, decision 57).
@@ -5298,6 +5310,7 @@ mod tests {
             vec![OperationRecord::of(&queued, None)],
             runner.config.as_ref(),
             Arc::clone(&runner.store),
+            Arc::clone(&runner.events),
             &runner,
         )
         .await;
